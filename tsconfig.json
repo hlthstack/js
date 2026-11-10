@@ -12,7 +12,8 @@
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "noEmit": true
+    "noEmit": true,
+    "paths": { "hlthstack": ["./src/index.ts"] }
   },
   "include": ["src", "test", "examples", "tsup.config.ts", "vitest.config.ts"]
 }

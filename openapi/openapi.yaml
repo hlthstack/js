@@ -19,7 +19,7 @@ info:
     **Conventions.**
     - Request and response bodies are JSON unless stated otherwise (vouchers are PDF, some
       uploads are multipart).
-    - Date-times are ISO 8601. Send `appointment_date_time` in UTC (`2026-01-15T03:30:00Z`).
+    - Date-times are ISO 8601. Send `appointment_date_time` in UTC (`2030-01-15T03:30:00Z`).
     - `plan_id`, wherever accepted, is the plan identifier hlthstack shares at onboarding
       (a string). It is optional; when omitted, the entity's base plan is used.
     - Any unhandled error is returned as `422 {"errors":{"messages":["..."]}}`.
@@ -353,7 +353,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateAppointmentRequest'}
             example:
-              appointment_date_time: '2026-01-15T02:30:00Z'
+              appointment_date_time: '2030-01-15T02:30:00Z'
               appointment_type: home_collection
               service_name: ahc
               provider_id: 1001
@@ -590,7 +590,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/RescheduleAppointmentRequest'}
             example:
-              appointment_date_time: '2026-01-16T02:30:00Z'
+              appointment_date_time: '2030-01-16T02:30:00Z'
       responses:
         '200':
           description: All or some appointments rescheduled.
@@ -686,7 +686,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/RescheduleAppointmentRequest'}
             example:
-              appointment_date_time: '2026-01-16T02:30:00Z'
+              appointment_date_time: '2030-01-16T02:30:00Z'
               provider_id: 1002
       responses:
         '200':
@@ -1062,7 +1062,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateInclinicConsultationRequest'}
             example:
-              appointment_date_time: '2026-01-15T04:30:00.000Z'
+              appointment_date_time: '2030-01-15T04:30:00.000Z'
               service_mode: at_provider_location
               provider_id: 2001
               customers:
@@ -1128,7 +1128,7 @@ paths:
           application/json:
             schema: {$ref: '#/components/schemas/CreateSpecialistConsultationRequest'}
             example:
-              appointment_date_time: '2026-01-15T04:30:00.000Z'
+              appointment_date_time: '2030-01-15T04:30:00.000Z'
               service_mode: audio_call
               provider_id: 3001
               priority_consultation: false
@@ -1167,7 +1167,7 @@ paths:
               example:
                 booking_id: EKI0000000001700000000
                 appointment_id: APT1A2B3C4D5
-                appointment_date_time: '2026-01-15T04:30:00Z'
+                appointment_date_time: '2030-01-15T04:30:00Z'
                 status: confirmed
                 service_name: Inclinic consultation
                 service_mode: at_provider_location
@@ -1213,7 +1213,7 @@ paths:
               example:
                 booking_id: EKI0000000001700000000
                 appointment_id: APT1A2B3C4D5
-                appointment_date_time: '2026-01-15T04:30:00Z'
+                appointment_date_time: '2030-01-15T04:30:00Z'
                 status: confirmed
                 service_name: Specialist consultation
                 service_mode: video_call
@@ -1271,7 +1271,7 @@ paths:
                 provider_id:
                   type: [integer, string]
                   description: Optional. If sent, must be the consultation's current provider.
-            example: {appointment_date_time: '2026-01-16T04:30:00.000Z'}
+            example: {appointment_date_time: '2030-01-16T04:30:00.000Z'}
       responses:
         '200':
           description: Rescheduled.
@@ -2780,7 +2780,7 @@ webhooks:
               mobile_number: '9999999999'
               api_customer_id: CUST1001
               member_id: EMP0001
-              appointment_date_time: '2026-01-15T02:30:00Z'
+              appointment_date_time: '2030-01-15T02:30:00Z'
               event_timestamp: 1768440000.123
               booking_source: hlthstack-api
               service_type: ahc
@@ -2836,7 +2836,7 @@ webhooks:
               appointment_id: APT1A2B3C4D5
               customer_id: EKI000000001
               api_customer_id: CUST1001
-              appointment_date_time: '2026-01-15T04:30:00Z'
+              appointment_date_time: '2030-01-15T04:30:00Z'
               booking_source: hlthstack-api
               service_type: specialist_consultation
               status: confirmed

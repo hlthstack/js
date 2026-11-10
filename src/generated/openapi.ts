@@ -3729,7 +3729,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "appointment_date_time": "2026-01-15T02:30:00Z",
+                 *       "appointment_date_time": "2030-01-15T02:30:00Z",
                  *       "appointment_type": "home_collection",
                  *       "service_name": "ahc",
                  *       "provider_id": 1001,
@@ -4001,7 +4001,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "appointment_date_time": "2026-01-16T02:30:00Z"
+                 *       "appointment_date_time": "2030-01-16T02:30:00Z"
                  *     }
                  */
                 "application/json": components["schemas"]["RescheduleAppointmentRequest"];
@@ -4111,7 +4111,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "appointment_date_time": "2026-01-16T02:30:00Z",
+                 *       "appointment_date_time": "2030-01-16T02:30:00Z",
                  *       "provider_id": 1002
                  *     }
                  */
@@ -4700,7 +4700,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "appointment_date_time": "2026-01-15T04:30:00.000Z",
+                 *       "appointment_date_time": "2030-01-15T04:30:00.000Z",
                  *       "service_mode": "at_provider_location",
                  *       "provider_id": 2001,
                  *       "customers": [
@@ -4756,7 +4756,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "appointment_date_time": "2026-01-15T04:30:00.000Z",
+                 *       "appointment_date_time": "2030-01-15T04:30:00.000Z",
                  *       "service_mode": "audio_call",
                  *       "provider_id": 3001,
                  *       "priority_consultation": false,
@@ -4813,7 +4813,7 @@ export interface operations {
                      * @example {
                      *       "booking_id": "EKI0000000001700000000",
                      *       "appointment_id": "APT1A2B3C4D5",
-                     *       "appointment_date_time": "2026-01-15T04:30:00Z",
+                     *       "appointment_date_time": "2030-01-15T04:30:00Z",
                      *       "status": "confirmed",
                      *       "service_name": "Inclinic consultation",
                      *       "service_mode": "at_provider_location",
@@ -4878,7 +4878,7 @@ export interface operations {
                      * @example {
                      *       "booking_id": "EKI0000000001700000000",
                      *       "appointment_id": "APT1A2B3C4D5",
-                     *       "appointment_date_time": "2026-01-15T04:30:00Z",
+                     *       "appointment_date_time": "2030-01-15T04:30:00Z",
                      *       "status": "confirmed",
                      *       "service_name": "Specialist consultation",
                      *       "service_mode": "video_call",
@@ -4932,7 +4932,7 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "appointment_date_time": "2026-01-16T04:30:00.000Z"
+                 *       "appointment_date_time": "2030-01-16T04:30:00.000Z"
                  *     }
                  */
                 "application/json": {
@@ -6753,7 +6753,7 @@ export interface operations {
                  *       "mobile_number": "9999999999",
                  *       "api_customer_id": "CUST1001",
                  *       "member_id": "EMP0001",
-                 *       "appointment_date_time": "2026-01-15T02:30:00Z",
+                 *       "appointment_date_time": "2030-01-15T02:30:00Z",
                  *       "event_timestamp": 1768440000.123,
                  *       "booking_source": "hlthstack-api",
                  *       "service_type": "ahc",
@@ -6819,7 +6819,7 @@ export interface operations {
                  *       "appointment_id": "APT1A2B3C4D5",
                  *       "customer_id": "EKI000000001",
                  *       "api_customer_id": "CUST1001",
-                 *       "appointment_date_time": "2026-01-15T04:30:00Z",
+                 *       "appointment_date_time": "2030-01-15T04:30:00Z",
                  *       "booking_source": "hlthstack-api",
                  *       "service_type": "specialist_consultation",
                  *       "status": "confirmed",

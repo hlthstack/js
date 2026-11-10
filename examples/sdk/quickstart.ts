@@ -1,5 +1,5 @@
-// Quickstart from the README. Run against staging with:
-//   HLTHSTACK_USERNAME=... HLTHSTACK_PASSWORD=... npx tsx examples/quickstart.ts
+// Quickstart from docs/sdk-integration.md. Run against staging with:
+//   HLTHSTACK_USERNAME=... HLTHSTACK_PASSWORD=... npx tsx examples/sdk/quickstart.ts
 import { Hlthstack } from 'hlthstack';
 
 const client = new Hlthstack({

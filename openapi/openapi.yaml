@@ -24,6 +24,16 @@ info:
       (a string). It is optional; when omitted, the entity's base plan is used.
     - Any unhandled error is returned as `422 {"errors":{"messages":["..."]}}`.
 
+    **Input validation.** Request schemas encode the checks the server applies to the input
+    itself (`required`, `enum`, `pattern`, `minLength`, `maximum`, `minItems`, ...). Patterns
+    are ECMAScript/Python regexes and are matched as a search, as JSON Schema specifies:
+    a pattern is anchored (`^...$`) only where the server anchors it. Rules that span fields
+    or need the current date are listed on the operation under `x-hlthstack-rules`, each
+    `{rule, description, fields}`, where `rule` is one of the kinds in
+    `x-hlthstack-rule-kinds` and `fields` are dotted paths (`customers[].dob`). Checks that
+    depend on stored data (plan benefits, slot availability, provider capability) are not
+    encoded and are reported by the server.
+
     Guides: https://github.com/hlthstack/integration-guide/tree/main/docs
   contact:
     name: hlthstack
@@ -35,6 +45,17 @@ servers:
     description: Staging (sandbox for integration testing; staging-only endpoints are available here)
 security:
   - bearerAuth: []
+x-hlthstack-rule-kinds:
+  required_if: The listed fields are required when the condition in the description holds.
+  at_least_one_of: At least one of the listed fields must be present and non-blank.
+  mutually_exclusive: At most one of the listed fields may be sent.
+  allowed_only_if: The listed fields may be sent only when the condition in the description holds.
+  unique_by: No two array items may share the listed field's value (compared as strings).
+  relative_date: The date or date-time must fall on the side of today or now given in the description.
+  no_conflicting_pincode: For an Indian address (blank country counts as India), the listed text fields must not contain a standalone 6-digit number other than the address pincode.
+  file_limits: Each uploaded file must meet the size and type limits in the description.
+  item_count: The number of items, across the listed arrays, must be within the bounds in the description.
+  positive_decimal: The value must parse as a decimal number greater than 0.
 tags:
   - name: Authentication
     description: Obtain a bearer access token.
@@ -100,6 +121,16 @@ paths:
         Either `pincode` or both `latitude` and `longitude` are required (if only coordinates
         are sent the pincode is derived from them). `sort_by` and `gender` are supported only
         for `service_name=inclinic_consultation`.
+      x-hlthstack-rules:
+        - rule: required_if
+          description: When pincode is not sent, latitude and longitude are both required (the pincode is derived from them).
+          fields: [pincode, latitude, longitude]
+        - rule: allowed_only_if
+          description: sort_by and gender are accepted only when service_name is inclinic_consultation.
+          fields: [sort_by, gender, service_name]
+        - rule: required_if
+          description: api_customer_id is required when sort_by is visited_before.
+          fields: [api_customer_id, sort_by]
       parameters:
         - $ref: '#/components/parameters/ServiceName'
         - $ref: '#/components/parameters/PackageIdsQuery'
@@ -108,8 +139,8 @@ paths:
         - $ref: '#/components/parameters/LongitudeQuery'
         - name: radius
           in: query
-          description: Search radius in km for in-clinic providers (1-100). Default 100.
-          schema: {type: number, minimum: 1, maximum: 100, default: 100}
+          description: Search radius in km for in-clinic providers. Default 100.
+          schema: {type: number, default: 100}
         - name: auto_allocate_provider
           in: query
           description: |
@@ -213,12 +244,16 @@ paths:
         - name: count_days
           in: query
           description: Number of days to return when `booking_date` is omitted. Default 14.
-          schema: {type: integer, minimum: 1}
+          schema: {type: integer}
         - name: slot_start_date
           in: query
           description: Start the multi-day window no earlier than this date.
           schema: {type: string, format: date}
-        - $ref: '#/components/parameters/PincodeQuery'
+        - name: pincode
+          in: query
+          description: 6-digit pincode of the member's location. Derived from `latitude`/`longitude` when omitted.
+          schema: {type: string}
+          example: '500081'
         - $ref: '#/components/parameters/LatitudeQuery'
         - $ref: '#/components/parameters/LongitudeQuery'
         - name: city_name
@@ -299,6 +334,19 @@ paths:
         To pay from a specific subscription when a customer holds several on a plan, send
         `customer_plan_id` (hlthstack's id, from `listCustomerPlans`) or `subscription_id`
         (your own id). `customer_plan_id` wins when both are sent.
+      x-hlthstack-rules:
+        - rule: required_if
+          description: address is required when appointment_type is home_collection.
+          fields: [address, appointment_type]
+        - rule: unique_by
+          description: Each customer needs its own api_customer_id.
+          fields: ['customers[].api_customer_id']
+        - rule: relative_date
+          description: Each customer's dob must be on or before the same date one year ago (members must be at least 1 year old).
+          fields: ['customers[].dob']
+        - rule: no_conflicting_pincode
+          description: Home collection only. address_line_one, address_line_two, city, state and country must not contain a 6-digit pincode other than address.pincode.
+          fields: [address.address_line_one, address.address_line_two, address.city, address.state, address.country, address.pincode]
       requestBody:
         required: true
         content:
@@ -417,6 +465,10 @@ paths:
         Returns up to 50 of a customer's most recent appointments (newest first), each in
         the appointment webhook shape. Identify the customer by `api_customer_id` or
         `employee_id` (`api_customer_id` wins when both are sent).
+      x-hlthstack-rules:
+        - rule: at_least_one_of
+          description: Send api_customer_id or employee_id.
+          fields: [api_customer_id, employee_id]
       parameters:
         - name: api_customer_id
           in: query
@@ -528,6 +580,10 @@ paths:
         Moves all appointments in the booking. See `rescheduleAppointment` for the rules.
         Some appointments may be moved while others are not; the response then lists both as
         comma-separated `appointment_id`s.
+      x-hlthstack-rules:
+        - rule: no_conflicting_pincode
+          description: When address is sent for a home-collection booking, address_line_one, address_line_two, city, state and country must not contain a 6-digit pincode other than address.pincode.
+          fields: [address.address_line_one, address.address_line_two, address.city, address.state, address.country, address.pincode]
       requestBody:
         required: true
         content:
@@ -620,6 +676,10 @@ paths:
         Home collection: allowed until a phlebotomist is assigned or 30 minutes before the
         slot, whichever is first. In-clinic: until 30 minutes before the slot. An in-clinic
         appointment cannot become home collection.
+      x-hlthstack-rules:
+        - rule: no_conflicting_pincode
+          description: When address is sent for a home-collection appointment, address_line_one, address_line_two, city, state and country must not contain a 6-digit pincode other than address.pincode.
+          fields: [address.address_line_one, address.address_line_two, address.city, address.state, address.country, address.pincode]
       requestBody:
         required: true
         content:
@@ -863,6 +923,13 @@ paths:
       tags: [Consultations]
       summary: List in-clinic doctors
       description: Doctors near a location for the given consultation packages, with doctor details.
+      x-hlthstack-rules:
+        - rule: required_if
+          description: When pincode is not sent, latitude and longitude are both required (the pincode is derived from them).
+          fields: [pincode, latitude, longitude]
+        - rule: required_if
+          description: api_customer_id is required when sort_by is visited_before.
+          fields: [api_customer_id, sort_by]
       parameters:
         - $ref: '#/components/parameters/PackageIdsQuery'
         - $ref: '#/components/parameters/PincodeQuery'
@@ -870,8 +937,8 @@ paths:
         - $ref: '#/components/parameters/LongitudeQuery'
         - name: radius
           in: query
-          description: Search radius in km (1-100). Default 100.
-          schema: {type: number, minimum: 1, maximum: 100, default: 100}
+          description: Search radius in km. Default 100.
+          schema: {type: number, default: 100}
         - $ref: '#/components/parameters/PlanIdQuery'
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -975,10 +1042,20 @@ paths:
       tags: [Consultations]
       summary: Book an in-clinic consultation
       description: |
-        Books an in-person consultation at the doctor's clinic. `service_mode` must be
-        `at_provider_location`; `address` (the member's) is required. The booking is made
-        for the first customer in `customers`. Subscription selection works as in
-        `createAppointment`.
+        Books an in-person consultation at the doctor's clinic. `service_mode`, when sent,
+        must be `at_provider_location`; `address` (the member's) is required, including
+        `pincode`. The booking is made for the first customer in `customers`. Subscription
+        selection works as in `createAppointment`.
+      x-hlthstack-rules:
+        - rule: unique_by
+          description: Each customer needs its own api_customer_id.
+          fields: ['customers[].api_customer_id']
+        - rule: relative_date
+          description: Each customer's dob must be on or before the same date one year ago (members must be at least 1 year old).
+          fields: ['customers[].dob']
+        - rule: relative_date
+          description: appointment_date_time must be later than now (a time without an offset is read as IST).
+          fields: [appointment_date_time]
       requestBody:
         required: true
         content:
@@ -1032,6 +1109,19 @@ paths:
           `listSpecialistConsultationProviders` with `default_provider=true`;
           `appointment_date_time` is optional. The consultation is `confirmed` immediately and
           the doctor's details arrive by webhook once a doctor is assigned.
+      x-hlthstack-rules:
+        - rule: required_if
+          description: appointment_date_time is required unless priority_consultation is true.
+          fields: [appointment_date_time, priority_consultation]
+        - rule: relative_date
+          description: Unless priority_consultation is true, appointment_date_time must be later than now (a time without an offset is read as IST).
+          fields: [appointment_date_time, priority_consultation]
+        - rule: unique_by
+          description: Each customer needs its own api_customer_id.
+          fields: ['customers[].api_customer_id']
+        - rule: relative_date
+          description: Each customer's dob must be on or before the same date one year ago (members must be at least 1 year old).
+          fields: ['customers[].dob']
       requestBody:
         required: true
         content:
@@ -1162,6 +1252,10 @@ paths:
         Moves the consultation to a new slot with the same doctor (to change doctor, cancel
         and book again). Allowed up to 30 minutes before the current slot, and not within
         5 minutes of the previous booking or reschedule.
+      x-hlthstack-rules:
+        - rule: relative_date
+          description: appointment_date_time must be later than now (a time without an offset is read as IST).
+          fields: [appointment_date_time]
       requestBody:
         required: true
         content:
@@ -1174,6 +1268,9 @@ paths:
                   type: string
                   format: date-time
                   description: New slot (`utc_slot_time` from `listSlots`).
+                provider_id:
+                  type: [integer, string]
+                  description: Optional. If sent, must be the consultation's current provider.
             example: {appointment_date_time: '2026-01-16T04:30:00.000Z'}
       responses:
         '200':
@@ -1331,7 +1428,15 @@ paths:
       description: |
         Shares the member's reports with the doctor (online specialist and priority
         consultations). Multipart form with one or more `files[][name]` + `files[][value]`
-        pairs. Allowed types: PDF, JPEG, PNG.
+        pairs, each with a non-blank name and a file. Allowed types: PDF, JPEG, PNG
+        (password-protected PDFs are refused).
+      x-hlthstack-rules:
+        - rule: item_count
+          description: At least one file; every file entry needs both a non-blank name and a value.
+          fields: ['files[][name]', 'files[][value]']
+        - rule: file_limits
+          description: Each file must be PDF, JPEG or PNG (extension pdf, jpg, jpeg or png) and not password-protected.
+          fields: ['files[][value]']
       requestBody:
         required: true
         content:
@@ -1342,6 +1447,7 @@ paths:
               properties:
                 'files[][name]':
                   type: string
+                  pattern: '\S'
                   description: Title of the document. Repeat once per file, in the same order as `files[][value]`.
                 'files[][value]':
                   type: string
@@ -1442,8 +1548,8 @@ paths:
         - name: name
           in: query
           required: true
-          description: Search text, at least 3 characters.
-          schema: {type: string, minLength: 3}
+          description: Search text, at least 3 characters after trimming surrounding whitespace.
+          schema: {type: string, minLength: 3, pattern: '\S[\s\S]+\S'}
           example: paracetamol
         - name: page
           in: query
@@ -1490,6 +1596,19 @@ paths:
 
         `customers` is an array with exactly one customer. Send an `Idempotency-Key` to make
         retries safe: repeating a key returns the existing request.
+      x-hlthstack-rules:
+        - rule: item_count
+          description: customers must contain exactly one customer.
+          fields: [customers]
+        - rule: item_count
+          description: files[] must contain at least one file.
+          fields: ['files[]']
+        - rule: file_limits
+          description: Each file at most 10 MB, with content type image/jpeg, image/png or application/pdf.
+          fields: ['files[]']
+        - rule: relative_date
+          description: dob must not be after today.
+          fields: ['customers[][dob]']
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1503,14 +1622,15 @@ paths:
               type: object
               required: ['customers[][name]', 'customers[][api_customer_id]', 'customers[][mobile_number]', 'customers[][gender]', 'customers[][dob]', 'files[]']
               properties:
-                'customers[][name]': {type: string}
-                'customers[][api_customer_id]': {type: string, pattern: '^[a-zA-Z0-9]*$'}
+                'customers[][name]': {type: string, pattern: '\S'}
+                'customers[][api_customer_id]': {type: string, pattern: '^[a-zA-Z0-9]+$'}
                 'customers[][mobile_number]': {type: string, pattern: '^[0-9]{10}$'}
                 'customers[][gender]': {type: string, enum: [male, female, non-binary]}
                 'customers[][dob]': {type: string, format: date}
                 plan_id: {type: string}
                 'files[]':
                   type: array
+                  minItems: 1
                   description: JPEG, PNG or PDF; each up to 10 MB.
                   items: {type: string, contentMediaType: application/octet-stream}
       responses:
@@ -1614,6 +1734,28 @@ paths:
           (a store `id` from `getFulfillmentOptions`).
 
         Use `multipart/form-data` (with bracketed field names) to upload `prescription_files[]`.
+      x-hlthstack-rules:
+        - rule: at_least_one_of
+          description: Send at least one change (products, address or address_id, prescription_urls or prescription_files, remove_prescription_ids, fulfillment_type or selected_chemist_id).
+          fields: [products, address, address_id, prescription_urls, prescription_files, remove_prescription_ids, fulfillment_type, selected_chemist_id]
+        - rule: mutually_exclusive
+          description: Send either address or address_id, not both.
+          fields: [address, address_id]
+        - rule: required_if
+          description: selected_chemist_id is required when fulfillment_type is store_pickup (or the cart is already store pickup and fulfillment_type is not sent).
+          fields: [selected_chemist_id, fulfillment_type]
+        - rule: unique_by
+          description: Each product id may appear only once.
+          fields: ['products[].id']
+        - rule: at_least_one_of
+          description: A new address needs pincode or zip_code.
+          fields: [address.pincode, address.zip_code]
+        - rule: file_limits
+          description: Each prescription file must be smaller than 7 MB and be PDF, PNG or JPEG; files fetched from prescription_urls must also be smaller than 7 MB and served as application/pdf, image/png or image/jpeg.
+          fields: [prescription_files, prescription_urls]
+        - rule: no_conflicting_pincode
+          description: A new address's line1, line2, city, state and country must not contain a 6-digit pincode other than its pincode.
+          fields: [address.line1, address.line2, address.city, address.state, address.country, address.pincode]
       requestBody:
         required: true
         content:
@@ -1654,7 +1796,7 @@ paths:
               type: object
               required: ['customer_details[api_customer_id]']
               properties:
-                'customer_details[api_customer_id]': {type: string}
+                'customer_details[api_customer_id]': {type: string, pattern: '\S'}
                 plan_id: {type: string}
                 'prescription_files[]':
                   type: array
@@ -1754,6 +1896,10 @@ paths:
         Final amounts before ordering, including the wallet split. `total_payable` is what
         the member still owes. Note the field is `selected_delivery_option` here but
         `delivery_option` on `createOrder`.
+      x-hlthstack-rules:
+        - rule: required_if
+          description: selected_chemist_id is required when selected_delivery_option is store_pickup (and must match the store saved on the cart).
+          fields: [selected_chemist_id, selected_delivery_option]
       requestBody:
         required: true
         content:
@@ -1900,7 +2046,7 @@ paths:
         - $ref: '#/components/parameters/Page'
         - name: per_page
           in: query
-          schema: {type: integer, minimum: 1, default: 10}
+          schema: {type: integer, default: 10}
       responses:
         '200':
           description: Orders.
@@ -2036,6 +2182,10 @@ paths:
         Partner-collected flow only. Tells hlthstack you collected `amount_to_collect`.
         `partner_collected_amount` must equal it exactly. Safe to retry: the same amount and
         reference returns `already_confirmed`. On 409, back off and retry.
+      x-hlthstack-rules:
+        - rule: positive_decimal
+          description: partner_collected_amount must be a decimal greater than 0 (it must also equal the order's amount_to_collect).
+          fields: [partner_collected_amount]
       requestBody:
         required: true
         content:
@@ -2046,11 +2196,13 @@ paths:
               properties:
                 customer_details: {$ref: '#/components/schemas/CustomerDetailsRef'}
                 partner_collected_amount:
-                  type: string
-                  description: Decimal amount, for example "261.0".
+                  type: [string, number]
+                  exclusiveMinimum: 0
+                  description: Decimal amount greater than 0, for example "261.0".
                 partner_payment_reference:
                   type: string
-                  description: Your payment/transaction reference.
+                  pattern: '\S'
+                  description: Your payment/transaction reference (not blank; surrounding whitespace is trimmed).
             example:
               customer_details: {api_customer_id: CUST1001}
               partner_collected_amount: '261.0'
@@ -2126,6 +2278,7 @@ paths:
                 status:
                   type: string
                   description: An order status (see `PharmacyOrderStatus`).
+                  enum: [received, cancellation_request, cancellation_inprogress, consultation_required, processed, rejected, invoice_pending, invoice_generated, onhold, cancelled, abandoned, packing, packed, delivery_postponed, out_for_delivery, delivered, in_transit, in_delivery, created, verification_pending, verified, failed, in_progress, error, out_of_stock, returned_and_refunded, returned, under_ops_verification, prescription_under_verification, prescription_on_hold, prescription_rejected, prescription_cancelled, ops_verified, ops_rejected]
                 status_text: {type: string}
                 status_description: {type: string}
                 tracking_number: {type: string}
@@ -2186,6 +2339,10 @@ paths:
         (`api_customer_id` wins when both are sent); a dependant's id returns the whole
         family. Send `customer_plan_id` or `subscription_id` to read one subscription
         (upcoming and ended ones included).
+      x-hlthstack-rules:
+        - rule: at_least_one_of
+          description: Send api_customer_id or customer_id.
+          fields: [api_customer_id, customer_id]
       parameters:
         - $ref: '#/components/parameters/PlanIdQuery'
         - name: api_customer_id
@@ -2252,6 +2409,10 @@ paths:
         One row per subscription (active, upcoming or in grace; fully lapsed ones are left
         out). Use `customer_plan_id` to choose which subscription pays when booking or
         ordering.
+      x-hlthstack-rules:
+        - rule: at_least_one_of
+          description: Send api_customer_id or customer_id.
+          fields: [api_customer_id, customer_id]
       parameters:
         - name: api_customer_id
           in: query
@@ -2343,6 +2504,21 @@ paths:
           `email` or an `employee_code`.
         - Each dependant is linked to its employee by `guardian_email`, or by `company_id`
           plus `guardian_employee_code` when the employee has no email.
+        - Row values are checked while the request is processed; a row that fails a check is
+          reported in `failure_records` (see the field patterns and `x-hlthstack-rules`).
+      x-hlthstack-rules:
+        - rule: item_count
+          description: At most 250 rows in employees and dependants together.
+          fields: [employees, dependants]
+        - rule: at_least_one_of
+          description: Each employee needs a non-blank email or employee_code.
+          fields: ['employees[].email', 'employees[].employee_code']
+        - rule: at_least_one_of
+          description: Each dependant needs guardian_email, or company_id together with guardian_employee_code.
+          fields: ['dependants[].guardian_email', 'dependants[].guardian_employee_code']
+        - rule: relative_date
+          description: date_of_birth (when not blank) must not be after today.
+          fields: ['employees[].date_of_birth', 'dependants[].date_of_birth']
       security:
         - preRegistrationKey: []
       requestBody:
@@ -2407,6 +2583,16 @@ paths:
         - `mobile_number` in an update is stored as the member's alternate mobile number.
         - `voluntary_plan_ids` takes the same entries as `createPreRegistrations`. On a
           dependant it is refused (the rest of the row is still applied).
+      x-hlthstack-rules:
+        - rule: item_count
+          description: At most 250 rows in employees and dependants together.
+          fields: [employees, dependants]
+        - rule: at_least_one_of
+          description: Each employee needs email, or company_id together with employee_code.
+          fields: ['employees[].email', 'employees[].employee_code']
+        - rule: at_least_one_of
+          description: Each dependant needs api_customer_id, dependent_code or mobile_number.
+          fields: ['dependants[].api_customer_id', 'dependants[].dependent_code', 'dependants[].mobile_number']
       security:
         - preRegistrationKey: []
       requestBody:
@@ -2448,6 +2634,10 @@ paths:
         Deactivating an employee also deactivates all their dependants and cancels their
         ongoing appointments. Only members of companies your credentials can act on are
         deactivated.
+      x-hlthstack-rules:
+        - rule: item_count
+          description: At most 250 entries in employees and dependants together.
+          fields: [employees, dependants]
       security:
         - preRegistrationKey: []
       requestBody:
@@ -2806,34 +2996,43 @@ components:
       required: true
       description: |
         The service to search for. Common values: `ahc` (health checks), `dental`, `vision`,
-        `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The service must be
-        enabled for your plan. `benefit_type` is accepted as an alias.
-      schema:
-        type: string
-        examples: [ahc, dental, vision, flu_vaccination, covid_vaccination]
+        `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The value must be a
+        known benefit type (see `BenefitType`), and the service must be enabled for your
+        plan (otherwise 403). `benefit_type` is accepted as an alias.
+      schema: {$ref: '#/components/schemas/BenefitType'}
     PackageIdsQuery:
       name: package_ids
       in: query
       required: true
-      description: Comma-separated package ids shared at onboarding.
-      schema: {type: string, pattern: '^[0-9]+(,[0-9]+)*$'}
+      description: |
+        Comma-separated package ids shared at onboarding, for example `1001,1002`. Each id
+        must be a package of the requested benefit. The pattern is the server's own,
+        unanchored check.
+      schema: {type: string, pattern: '[0-9]+(,[0-9]+)*'}
       example: '1001,1002'
     PincodeQuery:
       name: pincode
       in: query
-      description: 6-digit Indian pincode. Required unless `latitude` and `longitude` are sent.
+      description: |
+        6-digit pincode. Required unless `latitude` and `longitude` are sent (the pincode is
+        then derived from them).
       schema: {type: string, pattern: '^[0-9]{6}$'}
       example: '500081'
     LatitudeQuery:
       name: latitude
       in: query
-      description: Decimal latitude (must include a decimal point). Required unless `pincode` is sent.
+      description: |
+        Decimal latitude. Required unless `pincode` is sent. When no pincode can be derived
+        from the coordinates, the value must be non-negative and include a decimal point
+        (for example `17.0`, not `17`).
       schema: {type: number}
       example: 17.4437
     LongitudeQuery:
       name: longitude
       in: query
-      description: Decimal longitude (must include a decimal point). Required unless `pincode` is sent.
+      description: |
+        Decimal longitude. Required unless `pincode` is sent. When no pincode can be derived
+        from the coordinates, the value must be non-negative and include a decimal point.
       schema: {type: number}
       example: 78.3860
     PlanIdQuery:
@@ -2845,7 +3044,7 @@ components:
       name: customer_plan_id
       in: query
       description: hlthstack's subscription id (from `listCustomerPlans`).
-      schema: {type: integer}
+      schema: {type: integer, minimum: 0}
     SubscriptionIdQuery:
       name: subscription_id
       in: query
@@ -2854,11 +3053,13 @@ components:
     Page:
       name: page
       in: query
-      schema: {type: integer, minimum: 1, default: 1}
+      description: Page number. Values below 1 are read as 1.
+      schema: {type: integer, default: 1}
     PerPage:
       name: per_page
       in: query
-      schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+      description: Page size, at most 50. Values below 1 are read as 1.
+      schema: {type: integer, maximum: 50, default: 20}
     SortBy:
       name: sort_by
       in: query
@@ -2872,8 +3073,11 @@ components:
     DoctorGender:
       name: gender
       in: query
-      description: In-clinic consultations only. Filter doctors by gender.
-      schema: {type: string, enum: [Male, Female, Non-binary]}
+      description: In-clinic consultations only. Filter doctors by gender. `Male`, `Female` or `Non-binary`, any case.
+      schema:
+        type: string
+        pattern: '^(?:[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Aa][Ll][Ee]|[Nn][Oo][Nn]-[Bb][Ii][Nn][Aa][Rr][Yy])$'
+        examples: [Male, Female, Non-binary]
     VisitedBeforeCustomer:
       name: api_customer_id
       in: query
@@ -3163,12 +3367,18 @@ components:
 
     BookingId:
       type: string
-      pattern: '^EKI[0-9A-Z_]{19}$'
+      description: '`EKI` followed by 19 characters (22 in all). The pattern is the server''s own, unanchored check.'
+      pattern: 'EKI[0-9A-Z_]{19}'
       example: EKI0000000001700000000
     AppointmentId:
       type: string
-      pattern: '^APT[0-9A-Z_]{9}$'
+      description: '`APT` followed by 9 characters (12 in all). The pattern is the server''s own, unanchored check.'
+      pattern: 'APT[0-9A-Z_]{9}'
       example: APT1A2B3C4D5
+    BenefitType:
+      type: string
+      description: A benefit type. The service must also be enabled on your plan.
+      enum: [ahc, dental, vision, fitness, pharmacy, eap, family_doctor, pre_employment, covid_vaccination, flu_vaccination, other_health_checks, rtpcr, specialist_consultation, pregnancy_care, ohc, annual_calendar, health_coach, health_insurance, face_to_face_consults, daycare_surgeries, ambulance_on_demand, supplementary_insurance, elder_care, home_care, healthcare_financing, nhc, diet_consultation, inclinic_consultation, fertility_treatment, consultation24x7, imaging_services, occupational_medical_rooms, cancer_screening, onsite_camp, filler_benefit_one, filler_benefit_two, filler_benefit_three, filler_benefit_four, prescribed_diagnostics, ppmc, weight_management_program, diabetic_program, bp_program, cervical_vaccination, physiotherapy, prescribed_diagnostics_flow, vision_wearable, maternity_care, gym_subscription, fitness_products, wellbeing_marketplace, pcos_program, parenting_program, midlife_health_program, general_health_program, fertility_care, cholesterol_program, financial_wellbeing]
 
     # ---------- providers & slots
     ProvidersResponse:
@@ -3288,25 +3498,38 @@ components:
     # ---------- appointments
     BookingAddress:
       type: object
-      required: [address_line_one, address_line_two, city, state, country, pincode, latitude, longitude]
+      description: |
+        The member's address. `pincode` may be omitted: it is then derived from `latitude` and
+        `longitude` (the request fails if it cannot be derived).
+      required: [address_line_one, address_line_two, city, state, country, latitude, longitude]
       properties:
-        address_line_one: {type: string, maxLength: 254}
-        address_line_two: {type: string, maxLength: 254}
-        city: {type: string}
-        state: {type: string}
-        country: {type: string, description: "Must be India."}
-        pincode: {type: string, pattern: '^[0-9]{6}$'}
-        latitude: {type: number}
-        longitude: {type: number}
+        address_line_one: {type: string, pattern: '\S', maxLength: 254}
+        address_line_two: {type: string, pattern: '\S', maxLength: 254}
+        city: {type: string, pattern: '\S'}
+        state: {type: string, pattern: '\S'}
+        country: {type: string, pattern: '\S', examples: [India]}
+        pincode:
+          type: [string, integer]
+          pattern: '^[1-9][0-9]{5}$'
+          minimum: 100000
+          maximum: 999999
+          description: 6-digit pincode (read as a number, so it cannot start with 0).
+        latitude: {type: number, minimum: 0}
+        longitude: {type: number, minimum: 0}
+    ConsultationAddress:
+      description: The member's address, as `BookingAddress`, except that `pincode` is required.
+      allOf:
+        - $ref: '#/components/schemas/BookingAddress'
+        - required: [pincode]
     BookingCustomer:
       type: object
       required: [name, api_customer_id, mobile_number, gender, dob, package_ids]
       properties:
-        name: {type: string}
-        api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]*$', description: "Your id for the member. Unique within the request."}
+        name: {type: string, pattern: '\S'}
+        api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]+$', description: "Your id for the member. Unique within the request."}
         mobile_number: {type: string, pattern: '^[0-9]{10}$', description: "10 digits without +91."}
         gender: {type: string, enum: [male, female, non-binary]}
-        dob: {type: string, format: date}
+        dob: {type: string, format: date, description: "At least 1 year before today."}
         package_ids:
           type: array
           items: {type: [integer, string]}
@@ -3318,10 +3541,10 @@ components:
       type: object
       required: [provider_id, appointment_date_time, appointment_type, service_name, customers]
       properties:
-        provider_id: {type: [integer, string]}
+        provider_id: {type: [integer, string], pattern: '^[+-]?[0-9]+$'}
         appointment_date_time: {type: string, format: date-time, description: "A slot's `utc_slot_time`."}
         appointment_type: {type: string, enum: [home_collection, inclinic]}
-        service_name: {type: string, examples: [ahc, dental, vision, flu_vaccination, covid_vaccination]}
+        service_name: {$ref: '#/components/schemas/BenefitType'}
         customers:
           type: array
           minItems: 1
@@ -3330,7 +3553,7 @@ components:
           $ref: '#/components/schemas/BookingAddress'
           description: Required for home_collection.
         plan_id: {type: string}
-        customer_plan_id: {type: integer}
+        customer_plan_id: {type: integer, minimum: 0}
         subscription_id: {type: string}
         api_partner_order_id: {type: string, description: "Default for customers that do not send their own."}
     CreateAppointmentResponse:
@@ -3360,27 +3583,31 @@ components:
       required: [appointment_date_time]
       properties:
         appointment_date_time: {type: string, format: date-time}
-        provider_id: {type: [integer, string], description: "Only to move to another provider."}
+        provider_id:
+          type: [integer, string, 'null']
+          pattern: '^(?:[+-]?[0-9]+)?$'
+          description: Only to move to another provider. Blank or null keeps the current provider.
         address:
           $ref: '#/components/schemas/BookingAddress'
-          description: Home collection only, with provider_id.
+          description: Home collection only, with provider_id. Checked only when the booking has a home-collection appointment.
     AppointmentPaymentDetailsRequest:
       type: object
       required: [provider_id, appointment_type, service_name, customers]
       properties:
-        provider_id: {type: integer}
+        provider_id: {type: [integer, string], pattern: '^[+-]?[0-9]+$'}
         appointment_type: {type: string, enum: [home_collection, inclinic]}
         service_name: {type: string}
         plan_id: {type: string}
-        customer_plan_id: {type: integer}
+        customer_plan_id: {type: integer, minimum: 0}
         subscription_id: {type: string}
         customers:
           type: array
+          minItems: 1
           items:
             type: object
             required: [api_customer_id, package_ids]
             properties:
-              api_customer_id: {type: string}
+              api_customer_id: {type: string, pattern: '\S'}
               package_ids: {type: array, minItems: 1, items: {type: integer}}
               booking_customer: {type: boolean}
     AppointmentPaymentDetailsResponse:
@@ -3537,26 +3764,26 @@ components:
       type: object
       required: [name, api_customer_id, mobile_number, gender, dob, package_ids]
       properties:
-        name: {type: string}
-        api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]*$'}
-        mobile_number: {type: string, pattern: '^[0-9]{10}$'}
+        name: {type: string, pattern: '\S'}
+        api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]+$', description: "Your id for the member. Unique within the request."}
+        mobile_number: {type: string, pattern: '^[0-9]{10}$', description: "10 digits without +91."}
         gender: {type: string, enum: [male, female, non-binary]}
-        dob: {type: string, format: date}
+        dob: {type: string, format: date, description: "At least 1 year before today."}
         package_ids: {type: array, items: {type: [integer, string]}}
     CreateInclinicConsultationRequest:
       type: object
       required: [provider_id, appointment_date_time, customers, address]
       properties:
-        appointment_date_time: {type: string, format: date-time}
+        appointment_date_time: {type: string, format: date-time, description: "Later than now."}
         service_mode: {type: string, enum: [at_provider_location]}
-        provider_id: {type: [integer, string]}
+        provider_id: {type: [integer, string], pattern: '^[+-]?[0-9]+$'}
         customers:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/ConsultationCustomer'}
-        address: {$ref: '#/components/schemas/BookingAddress'}
+        address: {$ref: '#/components/schemas/ConsultationAddress'}
         plan_id: {type: string}
-        customer_plan_id: {type: integer}
+        customer_plan_id: {type: integer, minimum: 0}
         subscription_id: {type: string}
     CreateSpecialistConsultationRequest:
       type: object
@@ -3565,16 +3792,16 @@ components:
         appointment_date_time:
           type: string
           format: date-time
-          description: Required unless `priority_consultation` is true.
+          description: Required, and later than now, unless `priority_consultation` is true.
         service_mode: {type: string, enum: [audio_call, video_call]}
         priority_consultation: {type: boolean, default: false}
-        provider_id: {type: [integer, string]}
+        provider_id: {type: [integer, string], pattern: '^[+-]?[0-9]+$'}
         customers:
           type: array
           minItems: 1
           items: {$ref: '#/components/schemas/ConsultationCustomer'}
         plan_id: {type: string}
-        customer_plan_id: {type: integer}
+        customer_plan_id: {type: integer, minimum: 0}
         subscription_id: {type: string}
     CreateConsultationResponse:
       type: object
@@ -3737,13 +3964,25 @@ components:
         eta: {}
     PharmacyAddressInput:
       type: object
-      required: [line1, city, state, pincode]
+      description: A new address. `pincode` (or its alias `zip_code`) is required as well as `line1`, `city` and `state`.
+      required: [line1, city, state]
       properties:
-        line1: {type: string}
+        line1: {type: string, pattern: '\S'}
         line2: {type: string}
-        city: {type: string}
-        state: {type: string}
-        pincode: {type: string, description: "Alias of zip_code."}
+        city: {type: string, pattern: '\S'}
+        state: {type: string, pattern: '\S'}
+        pincode:
+          type: [string, integer]
+          pattern: '^[0-9]{6}$'
+          minimum: 100000
+          maximum: 999999
+          description: 6-digit Indian pincode. Alias of zip_code; zip_code wins when both are sent.
+        zip_code:
+          type: [string, integer]
+          pattern: '^[0-9]{6}$'
+          minimum: 100000
+          maximum: 999999
+          description: 6-digit Indian pincode.
         country: {type: string, default: India}
         land_mark: {type: string}
         latitude: {type: number, description: "Optional; improves store-pickup ranking."}
@@ -3757,19 +3996,29 @@ components:
           type: object
           required: [api_customer_id]
           properties:
-            api_customer_id: {type: string}
+            api_customer_id: {type: string, pattern: '\S'}
             name: {type: string}
-            dob: {type: string}
-            mobile_number: {type: string}
-            gender: {type: string}
+            dob: {type: string, description: "A date; a value that is not a date is ignored."}
+            mobile_number:
+              type: string
+              pattern: '^(?:[0-9]{10})?$'
+              description: 10 digits without +91. An empty value is ignored.
+            gender:
+              type: string
+              pattern: '^(?:[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Aa][Ll][Ee]|[Nn][Oo][Nn]-[Bb][Ii][Nn][Aa][Rr][Yy])?$'
+              description: '`male`, `female` or `non-binary`, any case.'
         products:
           type: array
+          minItems: 1
           items:
             type: object
             required: [id, quantity]
             properties:
               id: {type: integer, description: "Medicine id from `searchMedicines`."}
-              quantity: {type: integer, minimum: 0, description: "0 removes the line."}
+              quantity:
+                type: integer
+                minimum: 0
+                description: 0 removes the line. A positive quantity must not exceed the medicine's `limit_per_order`.
         address: {$ref: '#/components/schemas/PharmacyAddressInput'}
         address_id: {type: integer, description: "Mutually exclusive with `address`."}
         fulfillment_type: {type: string, enum: [delivery, store_pickup]}
@@ -3778,10 +4027,14 @@ components:
         prescription_urls:
           type: array
           maxItems: 5
-          description: Public HTTPS URLs (port 443) to PDF/PNG/JPEG files under 7 MB.
-          items: {type: string, format: uri}
+          description: Public HTTPS URLs (port 443, no user info) to PDF/PNG/JPEG files under 7 MB.
+          items:
+            type: string
+            format: uri
+            pattern: '^https://[^/?#@:]+(?::443)?(?:[/?#]|$)'
         remove_prescription_ids:
           type: array
+          minItems: 1
           items: {type: integer}
     FulfillmentOption:
       type: object
@@ -3851,7 +4104,7 @@ components:
         selected_delivery_option: {type: string, enum: [express, standard, store_pickup]}
         selected_chemist_id: {type: string, description: "Required for store_pickup; must match the cart's store."}
         medicine_vendor_id: {type: integer, description: "The option's `vendor_id`."}
-        customer_plan_id: {type: integer}
+        customer_plan_id: {type: integer, minimum: 0}
         subscription_id: {type: string}
     OrderPaymentDetails:
       type: object
@@ -3888,7 +4141,7 @@ components:
         location_token: {type: string, description: "Token of the chosen option from `getFulfillmentOptions`."}
         medicine_vendor_id: {type: integer}
         coupon_code: {type: string}
-        customer_plan_id: {type: integer}
+        customer_plan_id: {type: integer, minimum: 0}
         subscription_id: {type: string}
     CreateOrderResponse:
       type: object
@@ -4225,8 +4478,16 @@ components:
               type: string
               description: '`DD-MM-YYYY` or `YYYY-MM-DD`. Defaults to today; must not be after the plan''s end date.'
             additional:
-              type: boolean
-              description: Add another subscription to the plan, up to the plan's subscription limit. Counts only with `subscription_id`.
+              description: |
+                Add another subscription to the plan, up to the plan's subscription limit. Counts
+                only with `subscription_id`. `true` or `false`; the strings `true`, `false`, `1`
+                and `0` (any case) and the integers 1 and 0 are also accepted.
+              anyOf:
+                - type: boolean
+                - type: string
+                  pattern: '^\s*(?:[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|1|0)\s*$'
+                - type: integer
+                  enum: [0, 1]
             subscription_id:
               type: string
               description: Your own order id. Resending it returns the subscription it created, so retries never duplicate.
@@ -4235,7 +4496,8 @@ components:
       description: |
         One member (employee). Every key in `required` must be present, even with an empty
         value; a row missing one is dropped without being reported. Identify the employee by
-        `email`, or by `employee_code` within `company_id`.
+        `email`, or by `employee_code` within `company_id`. Blank values (`""`, `null`) pass
+        the format checks below except where a value is required.
       required: [company_id, employee_code, first_name, last_name, date_of_birth, gender, mobile_number, vip, entity_name, employee_office_location, department, grade, date_of_joining]
       properties:
         company_id:
@@ -4246,18 +4508,40 @@ components:
           description: Required (non-empty) when there is no `email`. Unique within the company.
         email:
           type: [string, 'null']
+          pattern: '^\s*$|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,9}\b'
           description: Required when `employee_code` is empty. Unique.
-        first_name: {type: string}
-        last_name: {type: [string, 'null']}
-        date_of_birth: {type: [string, 'null'], description: '`DD-MM-YYYY` or `DD/MM/YYYY`.'}
-        gender: {type: [string, 'null'], description: '`Male`, `Female` or `Non-binary` (any case).'}
-        mobile_number: {type: [string, 'null'], description: 10-digit mobile number without the country code.}
-        vip: {type: [string, 'null'], description: '`Yes` or `No` (any case).'}
+        first_name:
+          type: string
+          pattern: '^[a-zA-Z\s]*[a-zA-Z][a-zA-Z\s]*$'
+          description: Letters and spaces only; at least one letter.
+        last_name:
+          type: [string, 'null']
+          pattern: '^[a-zA-Z\s]*$'
+          description: Letters and spaces only.
+        date_of_birth:
+          type: [string, 'null']
+          pattern: '^\s*$|^\s*(?:0[1-9]|1[0-9]|2[0-9]|3[01])-(?:0[1-9]|1[012])-(?:19|20)[0-9]{2}|(?:0[1-9]|1[0-9]|2[0-9]|3[01])/(?:0[1-9]|1[012])/(?:19|20)[0-9]{2}\s*$'
+          description: '`DD-MM-YYYY` or `DD/MM/YYYY` (years 1900-2099), not in the future.'
+        gender:
+          type: [string, 'null']
+          pattern: '^\s*(?:(?:[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Aa][Ll][Ee]|[Nn][Oo][Nn]-[Bb][Ii][Nn][Aa][Rr][Yy])\s*)?$'
+          description: '`Male`, `Female` or `Non-binary` (any case).'
+        mobile_number:
+          type: [string, 'null']
+          pattern: '^\s*$|^[0-9]{10}$'
+          description: 10-digit mobile number without the country code.
+        vip:
+          type: [string, 'null']
+          pattern: '^\s*(?:(?:[Yy][Ee][Ss]|[Nn][Oo])\s*)?$'
+          description: '`Yes` or `No` (any case).'
         entity_name: {type: [string, 'null']}
         employee_office_location: {type: [string, 'null']}
         department: {type: [string, 'null']}
         grade: {type: [string, 'null']}
-        date_of_joining: {type: [string, 'null'], description: '`DD-MM-YYYY` or `DD/MM/YYYY`.'}
+        date_of_joining:
+          type: [string, 'null']
+          pattern: '^\s*$|^(?:0[1-9]|1[0-9]|2[0-9]|3[01])-(?:0[1-9]|1[012])-(?:19|20)[0-9]{2}|(?:0[1-9]|1[0-9]|2[0-9]|3[01])/(?:0[1-9]|1[012])/(?:19|20)[0-9]{2}$'
+          description: '`DD-MM-YYYY` or `DD/MM/YYYY` (years 1900-2099).'
         api_customer_id: {type: [string, 'null'], description: Your id for the member.}
         voluntary_plan_ids:
           type: array
@@ -4269,24 +4553,46 @@ components:
         row missing one is dropped without being reported. Link it to its employee with
         `guardian_email`, or with `company_id` plus `guardian_employee_code`.
         `voluntary_plan_ids` is not accepted on dependants: the dependant is registered but
-        the row is reported as failed.
+        the row is reported as failed. Blank values (`""`, `null`) pass the format checks
+        below except where a value is required.
       required: [first_name, last_name, date_of_birth, gender, mobile_number, relation]
       properties:
-        guardian_email: {type: [string, 'null'], description: The employee's email.}
+        guardian_email:
+          type: [string, 'null']
+          pattern: '^\s*$|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,9}\b'
+          description: The employee's email.
         company_id: {type: [string, integer, 'null'], description: The employee's company. Used with `guardian_employee_code`.}
         guardian_employee_code: {type: [string, 'null'], description: The employee's `employee_code`. Used with `company_id` when the employee has no email.}
         dependent_code: {type: [string, 'null'], description: 'Your id for the dependant. Unique per employee, case-insensitive.'}
-        email: {type: [string, 'null']}
-        first_name: {type: string}
-        last_name: {type: [string, 'null']}
-        date_of_birth: {type: [string, 'null'], description: '`DD-MM-YYYY` or `DD/MM/YYYY`.'}
-        gender: {type: [string, 'null'], description: '`Male` or `Female` (any case).'}
-        mobile_number: {type: [string, 'null'], description: 10-digit mobile number without the country code.}
+        email:
+          type: [string, 'null']
+          pattern: '^\s*$|\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,9}\b'
+        first_name:
+          type: string
+          pattern: '^[a-zA-Z\s]*[a-zA-Z][a-zA-Z\s]*$'
+          description: Letters and spaces only; at least one letter.
+        last_name:
+          type: [string, 'null']
+          pattern: '^[a-zA-Z\s]*$'
+          description: Letters and spaces only.
+        date_of_birth:
+          type: [string, 'null']
+          pattern: '^\s*$|^\s*(?:0[1-9]|1[0-9]|2[0-9]|3[01])-(?:0[1-9]|1[012])-(?:19|20)[0-9]{2}|(?:0[1-9]|1[0-9]|2[0-9]|3[01])/(?:0[1-9]|1[012])/(?:19|20)[0-9]{2}\s*$'
+          description: '`DD-MM-YYYY` or `DD/MM/YYYY` (years 1900-2099), not in the future.'
+        gender:
+          type: [string, 'null']
+          pattern: '^\s*(?:(?:[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Aa][Ll][Ee])\s*)?$'
+          description: '`Male` or `Female` (any case).'
+        mobile_number:
+          type: [string, 'null']
+          pattern: '^\s*(?:[0-9]{10}\s*)?$'
+          description: 10-digit mobile number without the country code.
         relation:
           type: [string, 'null']
-          description: 'One of `Father`, `Mother`, `Brother`, `Sister`, `Husband`, `Wife`, `Son`, `Daughter`, `Father in law`, `Mother in law`.'
+          pattern: '^\s*(?:(?:[Ff][Aa][Tt][Hh][Ee][Rr][ _][Ii][Nn][ _][Ll][Aa][Ww]|[Mm][Oo][Tt][Hh][Ee][Rr][ _][Ii][Nn][ _][Ll][Aa][Ww]|[Ff][Aa][Tt][Hh][Ee][Rr]|[Mm][Oo][Tt][Hh][Ee][Rr]|[Bb][Rr][Oo][Tt][Hh][Ee][Rr]|[Ss][Ii][Ss][Tt][Ee][Rr]|[Hh][Uu][Ss][Bb][Aa][Nn][Dd]|[Ww][Ii][Ff][Ee]|[Ss][Oo][Nn]|[Dd][Aa][Uu][Gg][Hh][Tt][Ee][Rr])\s*)?$'
+          description: 'One of `Father`, `Mother`, `Brother`, `Sister`, `Husband`, `Wife`, `Son`, `Daughter`, `Father in law`, `Mother in law` (any case; `_` may separate words).'
         api_customer_id: {type: [string, 'null'], description: Your id for the dependant.}
-        authorised_dependent: {type: [string, 'null'], description: '`Yes` or `No`. Defaults to `Yes`.'}
+        authorised_dependent: {type: [string, 'null'], description: '`Yes` or `No`. Defaults to `Yes`; any value other than `yes` (any case) means `No`.'}
     PreRegistrationEmployeeUpdate:
       type: object
       description: |
@@ -4300,9 +4606,15 @@ components:
         first_name: {type: string}
         last_name: {type: [string, 'null']}
         date_of_birth: {type: [string, 'null']}
-        gender: {type: [string, 'null']}
-        mobile_number: {type: [string, 'null']}
-        vip: {type: [string, 'null']}
+        gender:
+          type: [string, 'null']
+          pattern: '^(?:[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Aa][Ll][Ee]|[Nn][Oo][Nn]-[Bb][Ii][Nn][Aa][Rr][Yy])?$'
+          description: '`Male`, `Female` or `Non-binary` (any case, no surrounding spaces).'
+        mobile_number:
+          type: [string, 'null']
+          pattern: '^\s*$|^[0-9]{10}$'
+          description: 10-digit mobile number without the country code.
+        vip: {type: [string, 'null'], description: '`Yes` or `No`; any value other than `yes` (any case) means `No`.'}
         entity_name: {type: [string, 'null']}
         employee_office_location: {type: [string, 'null']}
         department: {type: [string, 'null']}
@@ -4325,12 +4637,18 @@ components:
         guardian_employee_code: {type: string}
         api_customer_id: {type: string}
         dependent_code: {type: string}
-        mobile_number: {type: string}
+        mobile_number:
+          type: string
+          pattern: '^\s*$|^[0-9]{10}$'
+          description: 10-digit mobile number without the country code. Used to find the dependant, and stored as the alternate mobile number.
         first_name: {type: string}
         last_name: {type: [string, 'null']}
         email: {type: [string, 'null']}
         date_of_birth: {type: [string, 'null']}
-        gender: {type: [string, 'null']}
+        gender:
+          type: [string, 'null']
+          pattern: '^(?:[Mm][Aa][Ll][Ee]|[Ff][Ee][Mm][Aa][Ll][Ee]|[Nn][Oo][Nn]-[Bb][Ii][Nn][Aa][Rr][Yy])?$'
+          description: '`Male`, `Female` or `Non-binary` (any case, no surrounding spaces).'
         relation: {type: string}
         authorised_dependent: {type: string, description: '`Yes` or `No`.'}
     CreatePreRegistrationsRequest:

@@ -1,5 +1,11 @@
-import { HlthstackBaseError, HlthstackConnectionError, HlthstackError } from './errors.js';
+import {
+  HlthstackBaseError,
+  HlthstackConnectionError,
+  HlthstackError,
+  HlthstackValidationError,
+} from './errors.js';
 import type { AccessToken } from './types.js';
+import { validateRequest, type RequestInput, type ValidatedOperation } from './validation.js';
 import { VERSION } from './version.js';
 
 export type Environment = 'production' | 'staging';
@@ -42,6 +48,12 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   /** Per-request timeout in milliseconds. Default 60000. */
   timeoutMs?: number;
+  /**
+   * Check every call's input against the API's rules before sending it, throwing
+   * `HlthstackValidationError` on a problem. Default `true`. Set `false` only as an escape
+   * hatch (for example if the server accepts something this version of the library rejects).
+   */
+  validate?: boolean;
 }
 
 export const TOKEN_PATH = '/api/get-access-token';
@@ -62,6 +74,8 @@ export interface RequestOptions {
   timeoutMs?: number;
   /** Extra headers to send. */
   headers?: Record<string, string>;
+  /** Override the client's `validate` option for this call. */
+  validate?: boolean;
 }
 
 type QueryValue = string | number | boolean | null | undefined | QueryValue[] | QueryObject;
@@ -72,6 +86,10 @@ interface QueryObject {
 export interface ApiRequest {
   method: 'GET' | 'POST' | 'PATCH';
   path: string;
+  /** operationId: when set, `params`, `query` and `body` are validated before anything is sent. */
+  operation?: ValidatedOperation;
+  /** Path parameters by their spec names, for validation. */
+  params?: Record<string, unknown>;
   query?: object;
   /** JSON body. */
   body?: unknown;
@@ -171,6 +189,7 @@ export class Transport {
   private readonly secretKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly validateInputs: boolean;
   private readonly tokens: TokenCache;
   private readonly preRegistrationTokens: TokenCache;
 
@@ -198,6 +217,7 @@ export class Transport {
     this.secretKey = options.secretKey || undefined;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.validateInputs = options.validate ?? true;
     this.tokens = new TokenCache(() =>
       this.fetchToken(TOKEN_PATH, options.username, options.password, '`username` and `password`'),
     );
@@ -240,8 +260,34 @@ export class Transport {
     )) as AccessToken;
   }
 
+  /**
+   * Validates a call's input unless validation is turned off for the client or the call.
+   * `rename` maps validation paths to the method's own argument names.
+   */
+  validate(
+    operation: ValidatedOperation,
+    input: RequestInput,
+    options: RequestOptions = {},
+    rename?: (path: string) => string,
+  ): void {
+    if (!(options.validate ?? this.validateInputs)) return;
+    const issues = validateRequest(operation, input);
+    if (issues.length === 0) return;
+    throw new HlthstackValidationError(
+      operation,
+      rename ? issues.map((i) => ({ ...i, path: rename(i.path) })) : issues,
+    );
+  }
+
+  private checkInput(req: ApiRequest, options: RequestOptions): void {
+    if (req.operation) {
+      this.validate(req.operation, { params: req.params, query: req.query, body: req.body }, options);
+    }
+  }
+
   /** Authenticated API call. Refreshes the token and retries once on a 401. */
   async request<T>(req: ApiRequest, options: RequestOptions = {}): Promise<T> {
+    this.checkInput(req, options);
     const headers = { ...this.entityHeaders(options), ...req.headers, ...options.headers };
     return this.withToken(
       this.tokens,
@@ -256,6 +302,7 @@ export class Transport {
    * headers). Refreshes the token and retries once on a 401.
    */
   async preRegistrationRequest<T>(req: ApiRequest, options: RequestOptions = {}): Promise<T> {
+    this.checkInput(req, options);
     const headers = { ...req.headers, ...options.headers };
     return this.withToken(
       this.preRegistrationTokens,

@@ -3,7 +3,7 @@ import { Hlthstack, HlthstackBaseError, HlthstackError } from '../src/index.js';
 import { TOKEN_PATH, json, makeClient, mockFetch, route, tokenResponse } from './helpers.js';
 
 const providers = { 'GET /api/providers': () => json({ providers: [] }) };
-const query = { service_name: 'ahc', package_ids: '1001', pincode: '500081' };
+const query = { service_name: 'ahc' as const, package_ids: '1001', pincode: '500081' };
 
 afterEach(() => {
   vi.useRealTimers();

@@ -65,7 +65,7 @@ describe('appointments', () => {
     const params = {
       appointment_date_time: '2026-01-15T02:30:00Z',
       appointment_type: 'home_collection' as const,
-      service_name: 'ahc',
+      service_name: 'ahc' as const,
       provider_id: 1001,
       customers: [{ ...customer, booking_customer: true }],
       address,
@@ -122,7 +122,8 @@ describe('appointments', () => {
 
   it('encodes path parameters', async () => {
     const { client, last } = setup();
-    await client.appointments.cancel('APT/../x?y');
+    // Not a valid appointment id, so validation is turned off to reach the encoding.
+    await client.appointments.cancel('APT/../x?y', { validate: false });
     expect(last().url.pathname).toBe('/api/appointments/APT%2F..%2Fx%3Fy/cancel');
   });
 });
@@ -131,7 +132,7 @@ describe('consultations', () => {
   it('createInclinic and createSpecialist', async () => {
     const { client, apiCalls } = setup();
     const inclinic = {
-      appointment_date_time: '2026-01-15T04:30:00.000Z',
+      appointment_date_time: '2030-01-15T04:30:00.000Z',
       service_mode: 'at_provider_location' as const,
       provider_id: 2001,
       customers: [customer],
@@ -166,7 +167,7 @@ describe('consultations', () => {
     await client.consultations.listSlots(3001, 'specialist_consultation', { package_ids: '3001' });
     await client.consultations.getInclinic('APT1A2B3C4D5');
     await client.consultations.getSpecialist('APT1A2B3C4D5');
-    await client.consultations.reschedule('APT1A2B3C4D5', { appointment_date_time: '2026-01-16T04:30:00.000Z' });
+    await client.consultations.reschedule('APT1A2B3C4D5', { appointment_date_time: '2030-01-16T04:30:00.000Z' });
     const cancelled = await client.consultations.cancel('APT1A2B3C4D5');
     await client.consultations.getSummaryAndPrescription('APT1A2B3C4D5');
     expect(cancelled.msg).toBe('Appointment cancelled');
@@ -180,7 +181,7 @@ describe('consultations', () => {
       'PATCH /api/consultations/APT1A2B3C4D5/cancel',
       'GET /api/consultations/APT1A2B3C4D5/summary_and_prescription',
     ]);
-    expect(await jsonBody(apiCalls()[5])).toEqual({ appointment_date_time: '2026-01-16T04:30:00.000Z' });
+    expect(await jsonBody(apiCalls()[5])).toEqual({ appointment_date_time: '2030-01-16T04:30:00.000Z' });
   });
 
   it('getVoucher returns bytes', async () => {

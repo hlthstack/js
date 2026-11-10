@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { HlthstackConnectionError, HlthstackError, extractErrorMessages } from '../src/index.js';
 import { json, makeClient, mockFetch, route } from './helpers.js';
 
-const query = { service_name: 'ahc', package_ids: '1001', pincode: '500081' };
+const query = { service_name: 'ahc' as const, package_ids: '1001', pincode: '500081' };
 
 async function failWith(response: () => Response): Promise<HlthstackError> {
   const m = mockFetch(route({ 'GET /api/providers': response }));

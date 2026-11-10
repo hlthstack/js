@@ -36,7 +36,7 @@ export class PreRegistration {
     options?: RequestOptions,
   ): Promise<PreRegistrationAccepted> {
     return this.transport.preRegistrationRequest(
-      { method: 'POST', path: '/v1/corporate/pre_registrations', body: params },
+      { operation: 'createPreRegistrations', method: 'POST', path: '/v1/corporate/pre_registrations', body: params },
       options,
     );
   }
@@ -47,7 +47,12 @@ export class PreRegistration {
     options?: RequestOptions,
   ): Promise<PreRegistrationAccepted> {
     return this.transport.preRegistrationRequest(
-      { method: 'POST', path: '/v1/corporate/pre_registrations/update', body: params },
+      {
+        operation: 'updatePreRegistrations',
+        method: 'POST',
+        path: '/v1/corporate/pre_registrations/update',
+        body: params,
+      },
       options,
     );
   }
@@ -62,7 +67,12 @@ export class PreRegistration {
     options?: RequestOptions,
   ): Promise<PreRegistrationAccepted> {
     return this.transport.preRegistrationRequest(
-      { method: 'POST', path: '/v1/corporate/pre_registrations/deactivate', body: params },
+      {
+        operation: 'deactivatePreRegistrations',
+        method: 'POST',
+        path: '/v1/corporate/pre_registrations/deactivate',
+        body: params,
+      },
       options,
     );
   }
@@ -73,7 +83,12 @@ export class PreRegistration {
    */
   getStatus(requestId: string, options?: RequestOptions): Promise<PreRegistrationStatus> {
     return this.transport.preRegistrationRequest(
-      { method: 'GET', path: path`/v1/corporate/pre_registrations/${requestId}/status` },
+      {
+        operation: 'getPreRegistrationStatus',
+        method: 'GET',
+        path: path`/v1/corporate/pre_registrations/${requestId}/status`,
+        params: { request_id: requestId },
+      },
       options,
     );
   }

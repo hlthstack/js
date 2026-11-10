@@ -8,6 +8,8 @@ wallets and member pre-registration.
 - Zero runtime dependencies. Works on Node.js 18+ and any runtime with `fetch`.
 - Access tokens are fetched, cached and refreshed for you.
 - One method per API operation, typed from the [OpenAPI spec](https://github.com/hlthstack/integration-guide).
+- Every call's input is checked against the API's rules before it is sent, so invalid
+  parameters fail fast with a clear error instead of a round trip.
 - Webhook signature verification.
 
 > **Server-side only.** Your API credentials, access tokens, entity secret key and webhook
@@ -17,9 +19,21 @@ REST reference and guides: https://github.com/hlthstack/integration-guide
 
 ## Install
 
+Install straight from GitHub:
+
 ```sh
-npm install hlthstack
+npm install github:hlthstack/js
 ```
+
+Pin a release tag or commit for reproducible installs:
+
+```sh
+npm install github:hlthstack/js#<tag-or-commit>
+```
+
+npm builds the package (`dist/`) during the install, so the first install takes a little
+longer. Import it as `hlthstack` either way. Publishing to the npm registry
+(`npm install hlthstack`) is planned; the GitHub install keeps working when it lands.
 
 ## Quickstart
 
@@ -99,6 +113,7 @@ new Hlthstack({
   secretKey: undefined,            // required with entityId
   fetch: undefined,                // custom fetch (defaults to the global fetch)
   timeoutMs: 60_000,               // per-request timeout
+  validate: true,                  // check inputs before sending (see Validation)
 });
 ```
 
@@ -151,6 +166,7 @@ Every method takes an optional last argument:
   signal?: AbortSignal;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  validate?: boolean;   // override the client's `validate` for this call
 }
 ```
 
@@ -304,9 +320,76 @@ const staging = new Hlthstack({ username, password, environment: 'staging' });
 await staging.testing.simulateAppointmentStatus('APT1A2B3C4D5', { status: 'confirm' });
 ```
 
+## Validation
+
+Before any network call (and before fetching a token), every method checks its input
+against the rules in the OpenAPI spec and throws `HlthstackValidationError` listing **every**
+problem it found:
+
+- required fields, types (including nullable fields), enums;
+- patterns, exactly as the server applies them (some are deliberately unanchored), lengths,
+  numeric ranges, array sizes, and the `date`, `date-time`, `uri` and `uuid` formats;
+- path parameters, such as the shape of `booking_id` and `appointment_id`;
+- cross-field rules: fields required together or only in some cases (`address` for home
+  collection, `latitude`/`longitude` without `pincode`, `selected_chemist_id` for store
+  pickup...), "at least one of" and "only one of" groups, unique `api_customer_id`s and
+  product ids, at most 250 pre-registration rows;
+- dates relative to today: members at least one year old, `appointment_date_time` later than
+  now for consultations (a time without an offset is read as IST), dates of birth not in the
+  future. "Today" is the API's calendar day in India Standard Time;
+- pincodes: an Indian address must not mention a 6-digit pincode other than its own;
+- uploads: file count, size and type (give raw bytes a `filename` or `contentType`).
+
+```ts
+import { HlthstackValidationError } from 'hlthstack';
+
+try {
+  await client.appointments.create({
+    provider_id: 1001,
+    appointment_date_time: '2026-12-15T02:30:00Z',
+    appointment_type: 'home_collection',
+    service_name: 'ahc',
+    customers: [
+      { name: 'Jane Doe', dob: '1990-08-24', mobile_number: '+919999999999', api_customer_id: 'CUST1001', gender: 'female', package_ids: [1001] },
+      { name: 'John Doe', dob: '2026-02-01', mobile_number: '9999999998', api_customer_id: 'CUST1001', gender: 'male', package_ids: [1001] },
+    ],
+  });
+} catch (error) {
+  if (error instanceof HlthstackValidationError) {
+    error.operation; // 'createAppointment'
+    error.errors;
+    // [
+    //   { path: 'customers[0].mobile_number', message: 'must match ^[0-9]{10}$', rule: 'pattern' },
+    //   { path: 'address', message: 'is required when appointment_type is home_collection', rule: 'required_if' },
+    //   { path: 'customers[1].api_customer_id', message: 'duplicates customers[0].api_customer_id ("CUST1001")', rule: 'unique_by' },
+    //   { path: 'customers[1].dob', message: 'must be on or before 2025-11-10 (at least 1 year(s) ago)', rule: 'relative_date' },
+    // ]
+    error.message;
+    // 'Invalid createAppointment request (4 problems): customers[0].mobile_number: must match ^[0-9]{10}$; address: ...'
+  }
+}
+```
+
+`path` uses the method's own field names (`customers[0].api_customer_id`); it is empty when a
+problem concerns the input as a whole (for example "send at least one of api_customer_id,
+customer_id"). `rule` is the JSON Schema keyword or the spec's rule kind that failed.
+
+Checks that need data stored on the server, such as plan benefits, package ids, slot
+availability, whether an order or appointment exists, or whether an amount matches the
+order, are still made by the API and come back as `HlthstackError`.
+
+**Escape hatch.** If the API accepts something this version of the library rejects, turn
+validation off for one call or for the client, and please open an issue:
+
+```ts
+await client.appointments.create(params, { validate: false });
+const unchecked = new Hlthstack({ username, password, environment: 'staging', validate: false });
+```
+
 ## Errors
 
-Any non-2xx response throws an `HlthstackError`:
+Any non-2xx response throws an `HlthstackError` (invalid input is rejected earlier with an
+`HlthstackValidationError`, see [Validation](#validation)):
 
 ```ts
 import { HlthstackError, HlthstackConnectionError } from 'hlthstack';
@@ -399,8 +482,14 @@ npm run build
 `openapi/openapi.yaml` is a copy of the spec from
 [hlthstack/integration-guide](https://github.com/hlthstack/integration-guide), which is the
 source of truth. After updating it, run `npm run generate` to regenerate
-`src/generated/openapi.ts`, then add or adjust methods; `test/coverage.test.ts` fails if an
-operation has no method.
+`src/generated/openapi.ts` (types) and `src/generated/validation.ts` (the request schemas and
+`x-hlthstack-rules` used for validation), then add or adjust methods; `test/coverage.test.ts`
+fails if an operation has no method. `scripts/build-validation.mjs` stops with an error when
+the spec uses a schema keyword, format or rule it does not support: extend it and
+`src/validation.ts` together.
+
+`npm install` (and `npm install github:hlthstack/js` in other projects) runs the `prepare`
+script, which builds `dist/`.
 
 ## License
 

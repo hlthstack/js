@@ -540,10 +540,10 @@ export interface paths {
         put?: never;
         /**
          * Book an in-clinic consultation
-         * @description Books an in-person consultation at the doctor's clinic. `service_mode` must be
-         *     `at_provider_location`; `address` (the member's) is required. The booking is made
-         *     for the first customer in `customers`. Subscription selection works as in
-         *     `createAppointment`.
+         * @description Books an in-person consultation at the doctor's clinic. `service_mode`, when sent,
+         *     must be `at_provider_location`; `address` (the member's) is required, including
+         *     `pincode`. The booking is made for the first customer in `customers`. Subscription
+         *     selection works as in `createAppointment`.
          */
         post: operations["createInclinicConsultation"];
         delete?: never;
@@ -787,7 +787,8 @@ export interface paths {
          * Upload medical documents for a consultation
          * @description Shares the member's reports with the doctor (online specialist and priority
          *     consultations). Multipart form with one or more `files[][name]` + `files[][value]`
-         *     pairs. Allowed types: PDF, JPEG, PNG.
+         *     pairs, each with a non-blank name and a file. Allowed types: PDF, JPEG, PNG
+         *     (password-protected PDFs are refused).
          */
         post: operations["uploadConsultationDocuments"];
         delete?: never;
@@ -1332,6 +1333,8 @@ export interface paths {
          *       `email` or an `employee_code`.
          *     - Each dependant is linked to its employee by `guardian_email`, or by `company_id`
          *       plus `guardian_employee_code` when the employee has no email.
+         *     - Row values are checked while the request is processed; a row that fails a check is
+         *       reported in `failure_records` (see the field patterns and `x-hlthstack-rules`).
          */
         post: operations["createPreRegistrations"];
         delete?: never;
@@ -1638,10 +1641,21 @@ export interface components {
             file_name?: string | null;
             file_url?: string | null;
         } | null;
-        /** @example EKI0000000001700000000 */
+        /**
+         * @description `EKI` followed by 19 characters (22 in all). The pattern is the server's own, unanchored check.
+         * @example EKI0000000001700000000
+         */
         BookingId: string;
-        /** @example APT1A2B3C4D5 */
+        /**
+         * @description `APT` followed by 9 characters (12 in all). The pattern is the server's own, unanchored check.
+         * @example APT1A2B3C4D5
+         */
         AppointmentId: string;
+        /**
+         * @description A benefit type. The service must also be enabled on your plan.
+         * @enum {string}
+         */
+        BenefitType: "ahc" | "dental" | "vision" | "fitness" | "pharmacy" | "eap" | "family_doctor" | "pre_employment" | "covid_vaccination" | "flu_vaccination" | "other_health_checks" | "rtpcr" | "specialist_consultation" | "pregnancy_care" | "ohc" | "annual_calendar" | "health_coach" | "health_insurance" | "face_to_face_consults" | "daycare_surgeries" | "ambulance_on_demand" | "supplementary_insurance" | "elder_care" | "home_care" | "healthcare_financing" | "nhc" | "diet_consultation" | "inclinic_consultation" | "fertility_treatment" | "consultation24x7" | "imaging_services" | "occupational_medical_rooms" | "cancer_screening" | "onsite_camp" | "filler_benefit_one" | "filler_benefit_two" | "filler_benefit_three" | "filler_benefit_four" | "prescribed_diagnostics" | "ppmc" | "weight_management_program" | "diabetic_program" | "bp_program" | "cervical_vaccination" | "physiotherapy" | "prescribed_diagnostics_flow" | "vision_wearable" | "maternity_care" | "gym_subscription" | "fitness_products" | "wellbeing_marketplace" | "pcos_program" | "parenting_program" | "midlife_health_program" | "general_health_program" | "fertility_care" | "cholesterol_program" | "financial_wellbeing";
         ProvidersResponse: {
             providers: components["schemas"]["Provider"][];
             /** @description In-clinic consultations only. */
@@ -1757,17 +1771,24 @@ export interface components {
             interval?: number | null;
             unavailable_reason?: string | null;
         };
+        /**
+         * @description The member's address. `pincode` may be omitted: it is then derived from `latitude` and
+         *     `longitude` (the request fails if it cannot be derived).
+         */
         BookingAddress: {
             address_line_one: string;
             address_line_two: string;
             city: string;
             state: string;
-            /** @description Must be India. */
+            /** @example India */
             country: string;
-            pincode: string;
+            /** @description 6-digit pincode (read as a number, so it cannot start with 0). */
+            pincode?: string | number;
             latitude: number;
             longitude: number;
         };
+        /** @description The member's address, as `BookingAddress`, except that `pincode` is required. */
+        ConsultationAddress: components["schemas"]["BookingAddress"] & unknown;
         BookingCustomer: {
             name: string;
             /** @description Your id for the member. Unique within the request. */
@@ -1776,7 +1797,10 @@ export interface components {
             mobile_number: string;
             /** @enum {string} */
             gender: "male" | "female" | "non-binary";
-            /** Format: date */
+            /**
+             * Format: date
+             * @description At least 1 year before today.
+             */
             dob: string;
             package_ids: (number | string)[];
             booking_customer?: boolean;
@@ -1795,14 +1819,7 @@ export interface components {
             appointment_date_time: string;
             /** @enum {string} */
             appointment_type: "home_collection" | "inclinic";
-            /**
-             * @example ahc
-             * @example dental
-             * @example vision
-             * @example flu_vaccination
-             * @example covid_vaccination
-             */
-            service_name: string;
+            service_name: components["schemas"]["BenefitType"];
             customers: components["schemas"]["BookingCustomer"][];
             /** @description Required for home_collection. */
             address?: components["schemas"]["BookingAddress"];
@@ -1836,13 +1853,13 @@ export interface components {
         RescheduleAppointmentRequest: {
             /** Format: date-time */
             appointment_date_time: string;
-            /** @description Only to move to another provider. */
-            provider_id?: number | string;
-            /** @description Home collection only, with provider_id. */
+            /** @description Only to move to another provider. Blank or null keeps the current provider. */
+            provider_id?: number | string | null;
+            /** @description Home collection only, with provider_id. Checked only when the booking has a home-collection appointment. */
             address?: components["schemas"]["BookingAddress"];
         };
         AppointmentPaymentDetailsRequest: {
-            provider_id: number;
+            provider_id: number | string;
             /** @enum {string} */
             appointment_type: "home_collection" | "inclinic";
             service_name: string;
@@ -2011,22 +2028,30 @@ export interface components {
         };
         ConsultationCustomer: {
             name: string;
+            /** @description Your id for the member. Unique within the request. */
             api_customer_id: string;
+            /** @description 10 digits without +91. */
             mobile_number: string;
             /** @enum {string} */
             gender: "male" | "female" | "non-binary";
-            /** Format: date */
+            /**
+             * Format: date
+             * @description At least 1 year before today.
+             */
             dob: string;
             package_ids: (number | string)[];
         };
         CreateInclinicConsultationRequest: {
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description Later than now.
+             */
             appointment_date_time: string;
             /** @enum {string} */
             service_mode?: "at_provider_location";
             provider_id: number | string;
             customers: components["schemas"]["ConsultationCustomer"][];
-            address: components["schemas"]["BookingAddress"];
+            address: components["schemas"]["ConsultationAddress"];
             plan_id?: string;
             customer_plan_id?: number;
             subscription_id?: string;
@@ -2034,7 +2059,7 @@ export interface components {
         CreateSpecialistConsultationRequest: {
             /**
              * Format: date-time
-             * @description Required unless `priority_consultation` is true.
+             * @description Required, and later than now, unless `priority_consultation` is true.
              */
             appointment_date_time?: string;
             /** @enum {string} */
@@ -2191,13 +2216,16 @@ export interface components {
             selected_store_data?: Record<string, never>;
             eta?: unknown;
         };
+        /** @description A new address. `pincode` (or its alias `zip_code`) is required as well as `line1`, `city` and `state`. */
         PharmacyAddressInput: {
             line1: string;
             line2?: string;
             city: string;
             state: string;
-            /** @description Alias of zip_code. */
-            pincode: string;
+            /** @description 6-digit Indian pincode. Alias of zip_code; zip_code wins when both are sent. */
+            pincode?: string | number;
+            /** @description 6-digit Indian pincode. */
+            zip_code?: string | number;
             /** @default India */
             country: string;
             land_mark?: string;
@@ -2210,14 +2238,17 @@ export interface components {
             customer_details: {
                 api_customer_id: string;
                 name?: string;
+                /** @description A date; a value that is not a date is ignored. */
                 dob?: string;
+                /** @description 10 digits without +91. An empty value is ignored. */
                 mobile_number?: string;
+                /** @description `male`, `female` or `non-binary`, any case. */
                 gender?: string;
             };
             products?: {
                 /** @description Medicine id from `searchMedicines`. */
                 id: number;
-                /** @description 0 removes the line. */
+                /** @description 0 removes the line. A positive quantity must not exceed the medicine's `limit_per_order`. */
                 quantity: number;
             }[];
             address?: components["schemas"]["PharmacyAddressInput"];
@@ -2228,7 +2259,7 @@ export interface components {
             /** @description Store id; required for store_pickup. */
             selected_chemist_id?: string;
             medicine_vendor_id?: number;
-            /** @description Public HTTPS URLs (port 443) to PDF/PNG/JPEG files under 7 MB. */
+            /** @description Public HTTPS URLs (port 443, no user info) to PDF/PNG/JPEG files under 7 MB. */
             prescription_urls?: string[];
             remove_prescription_ids?: number[];
         };
@@ -2715,15 +2746,20 @@ export interface components {
             plan_id: string;
             /** @description `DD-MM-YYYY` or `YYYY-MM-DD`. Defaults to today; must not be after the plan's end date. */
             start_date?: string;
-            /** @description Add another subscription to the plan, up to the plan's subscription limit. Counts only with `subscription_id`. */
-            additional?: boolean;
+            /**
+             * @description Add another subscription to the plan, up to the plan's subscription limit. Counts
+             *     only with `subscription_id`. `true` or `false`; the strings `true`, `false`, `1`
+             *     and `0` (any case) and the integers 1 and 0 are also accepted.
+             */
+            additional?: boolean | string | (0 | 1);
             /** @description Your own order id. Resending it returns the subscription it created, so retries never duplicate. */
             subscription_id?: string;
         };
         /**
          * @description One member (employee). Every key in `required` must be present, even with an empty
          *     value; a row missing one is dropped without being reported. Identify the employee by
-         *     `email`, or by `employee_code` within `company_id`.
+         *     `email`, or by `employee_code` within `company_id`. Blank values (`""`, `null`) pass
+         *     the format checks below except where a value is required.
          */
         PreRegistrationEmployee: {
             /** @description The company (or entity) the member belongs to, shared at onboarding. Must be one your credentials can act on. */
@@ -2732,9 +2768,11 @@ export interface components {
             employee_code: string | null;
             /** @description Required when `employee_code` is empty. Unique. */
             email?: string | null;
+            /** @description Letters and spaces only; at least one letter. */
             first_name: string;
+            /** @description Letters and spaces only. */
             last_name: string | null;
-            /** @description `DD-MM-YYYY` or `DD/MM/YYYY`. */
+            /** @description `DD-MM-YYYY` or `DD/MM/YYYY` (years 1900-2099), not in the future. */
             date_of_birth: string | null;
             /** @description `Male`, `Female` or `Non-binary` (any case). */
             gender: string | null;
@@ -2746,7 +2784,7 @@ export interface components {
             employee_office_location: string | null;
             department: string | null;
             grade: string | null;
-            /** @description `DD-MM-YYYY` or `DD/MM/YYYY`. */
+            /** @description `DD-MM-YYYY` or `DD/MM/YYYY` (years 1900-2099). */
             date_of_joining: string | null;
             /** @description Your id for the member. */
             api_customer_id?: string | null;
@@ -2757,7 +2795,8 @@ export interface components {
          *     row missing one is dropped without being reported. Link it to its employee with
          *     `guardian_email`, or with `company_id` plus `guardian_employee_code`.
          *     `voluntary_plan_ids` is not accepted on dependants: the dependant is registered but
-         *     the row is reported as failed.
+         *     the row is reported as failed. Blank values (`""`, `null`) pass the format checks
+         *     below except where a value is required.
          */
         PreRegistrationDependant: {
             /** @description The employee's email. */
@@ -2769,19 +2808,21 @@ export interface components {
             /** @description Your id for the dependant. Unique per employee, case-insensitive. */
             dependent_code?: string | null;
             email?: string | null;
+            /** @description Letters and spaces only; at least one letter. */
             first_name: string;
+            /** @description Letters and spaces only. */
             last_name: string | null;
-            /** @description `DD-MM-YYYY` or `DD/MM/YYYY`. */
+            /** @description `DD-MM-YYYY` or `DD/MM/YYYY` (years 1900-2099), not in the future. */
             date_of_birth: string | null;
             /** @description `Male` or `Female` (any case). */
             gender: string | null;
             /** @description 10-digit mobile number without the country code. */
             mobile_number: string | null;
-            /** @description One of `Father`, `Mother`, `Brother`, `Sister`, `Husband`, `Wife`, `Son`, `Daughter`, `Father in law`, `Mother in law`. */
+            /** @description One of `Father`, `Mother`, `Brother`, `Sister`, `Husband`, `Wife`, `Son`, `Daughter`, `Father in law`, `Mother in law` (any case; `_` may separate words). */
             relation: string | null;
             /** @description Your id for the dependant. */
             api_customer_id?: string | null;
-            /** @description `Yes` or `No`. Defaults to `Yes`. */
+            /** @description `Yes` or `No`. Defaults to `Yes`; any value other than `yes` (any case) means `No`. */
             authorised_dependent?: string | null;
         };
         /**
@@ -2796,8 +2837,11 @@ export interface components {
             first_name?: string;
             last_name?: string | null;
             date_of_birth?: string | null;
+            /** @description `Male`, `Female` or `Non-binary` (any case, no surrounding spaces). */
             gender?: string | null;
+            /** @description 10-digit mobile number without the country code. */
             mobile_number?: string | null;
+            /** @description `Yes` or `No`; any value other than `yes` (any case) means `No`. */
             vip?: string | null;
             entity_name?: string | null;
             employee_office_location?: string | null;
@@ -2820,11 +2864,13 @@ export interface components {
             guardian_employee_code?: string;
             api_customer_id?: string;
             dependent_code?: string;
+            /** @description 10-digit mobile number without the country code. Used to find the dependant, and stored as the alternate mobile number. */
             mobile_number?: string;
             first_name?: string;
             last_name?: string | null;
             email?: string | null;
             date_of_birth?: string | null;
+            /** @description `Male`, `Female` or `Non-binary` (any case, no surrounding spaces). */
             gender?: string | null;
             relation?: string;
             /** @description `Yes` or `No`. */
@@ -3271,27 +3317,34 @@ export interface components {
         WebhookSignature: string;
         /**
          * @description The service to search for. Common values: `ahc` (health checks), `dental`, `vision`,
-         *     `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The service must be
-         *     enabled for your plan. `benefit_type` is accepted as an alias.
+         *     `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The value must be a
+         *     known benefit type (see `BenefitType`), and the service must be enabled for your
+         *     plan (otherwise 403). `benefit_type` is accepted as an alias.
          */
-        ServiceName: string;
+        ServiceName: components["schemas"]["BenefitType"];
         /**
-         * @description Comma-separated package ids shared at onboarding.
+         * @description Comma-separated package ids shared at onboarding, for example `1001,1002`. Each id
+         *     must be a package of the requested benefit. The pattern is the server's own,
+         *     unanchored check.
          * @example 1001,1002
          */
         PackageIdsQuery: string;
         /**
-         * @description 6-digit Indian pincode. Required unless `latitude` and `longitude` are sent.
+         * @description 6-digit pincode. Required unless `latitude` and `longitude` are sent (the pincode is
+         *     then derived from them).
          * @example 500081
          */
         PincodeQuery: string;
         /**
-         * @description Decimal latitude (must include a decimal point). Required unless `pincode` is sent.
+         * @description Decimal latitude. Required unless `pincode` is sent. When no pincode can be derived
+         *     from the coordinates, the value must be non-negative and include a decimal point
+         *     (for example `17.0`, not `17`).
          * @example 17.4437
          */
         LatitudeQuery: number;
         /**
-         * @description Decimal longitude (must include a decimal point). Required unless `pincode` is sent.
+         * @description Decimal longitude. Required unless `pincode` is sent. When no pincode can be derived
+         *     from the coordinates, the value must be non-negative and include a decimal point.
          * @example 78.386
          */
         LongitudeQuery: number;
@@ -3301,14 +3354,16 @@ export interface components {
         CustomerPlanIdQuery: number;
         /** @description Your own subscription id, if sent at enrollment. */
         SubscriptionIdQuery: string;
+        /** @description Page number. Values below 1 are read as 1. */
         Page: number;
+        /** @description Page size, at most 50. Values below 1 are read as 1. */
         PerPage: number;
         /** @description In-clinic consultations only. `visited_before` also needs `api_customer_id`. */
         SortBy: "fee" | "experience" | "distance" | "rating" | "visited_before";
         /** @description In-clinic consultations only. Default ascending for fee/distance, descending for experience/rating. */
         SortAsc: boolean;
-        /** @description In-clinic consultations only. Filter doctors by gender. */
-        DoctorGender: "Male" | "Female" | "Non-binary";
+        /** @description In-clinic consultations only. Filter doctors by gender. `Male`, `Female` or `Non-binary`, any case. */
+        DoctorGender: string;
         /** @description Required with `sort_by=visited_before`. */
         VisitedBeforeCustomer: string;
         BookingIdPath: components["schemas"]["BookingId"];
@@ -3374,31 +3429,38 @@ export interface operations {
             query: {
                 /**
                  * @description The service to search for. Common values: `ahc` (health checks), `dental`, `vision`,
-                 *     `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The service must be
-                 *     enabled for your plan. `benefit_type` is accepted as an alias.
+                 *     `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The value must be a
+                 *     known benefit type (see `BenefitType`), and the service must be enabled for your
+                 *     plan (otherwise 403). `benefit_type` is accepted as an alias.
                  */
                 service_name: components["parameters"]["ServiceName"];
                 /**
-                 * @description Comma-separated package ids shared at onboarding.
+                 * @description Comma-separated package ids shared at onboarding, for example `1001,1002`. Each id
+                 *     must be a package of the requested benefit. The pattern is the server's own,
+                 *     unanchored check.
                  * @example 1001,1002
                  */
                 package_ids: components["parameters"]["PackageIdsQuery"];
                 /**
-                 * @description 6-digit Indian pincode. Required unless `latitude` and `longitude` are sent.
+                 * @description 6-digit pincode. Required unless `latitude` and `longitude` are sent (the pincode is
+                 *     then derived from them).
                  * @example 500081
                  */
                 pincode?: components["parameters"]["PincodeQuery"];
                 /**
-                 * @description Decimal latitude (must include a decimal point). Required unless `pincode` is sent.
+                 * @description Decimal latitude. Required unless `pincode` is sent. When no pincode can be derived
+                 *     from the coordinates, the value must be non-negative and include a decimal point
+                 *     (for example `17.0`, not `17`).
                  * @example 17.4437
                  */
                 latitude?: components["parameters"]["LatitudeQuery"];
                 /**
-                 * @description Decimal longitude (must include a decimal point). Required unless `pincode` is sent.
+                 * @description Decimal longitude. Required unless `pincode` is sent. When no pincode can be derived
+                 *     from the coordinates, the value must be non-negative and include a decimal point.
                  * @example 78.386
                  */
                 longitude?: components["parameters"]["LongitudeQuery"];
-                /** @description Search radius in km for in-clinic providers (1-100). Default 100. */
+                /** @description Search radius in km for in-clinic providers. Default 100. */
                 radius?: number;
                 /**
                  * @description Home-collection packages only. Let hlthstack allocate the best provider by
@@ -3408,13 +3470,15 @@ export interface operations {
                 auto_allocate_provider?: boolean;
                 /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
                 plan_id?: components["parameters"]["PlanIdQuery"];
+                /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
+                /** @description Page size, at most 50. Values below 1 are read as 1. */
                 per_page?: components["parameters"]["PerPage"];
                 /** @description In-clinic consultations only. `visited_before` also needs `api_customer_id`. */
                 sort_by?: components["parameters"]["SortBy"];
                 /** @description In-clinic consultations only. Default ascending for fee/distance, descending for experience/rating. */
                 sort_asc?: components["parameters"]["SortAsc"];
-                /** @description In-clinic consultations only. Filter doctors by gender. */
+                /** @description In-clinic consultations only. Filter doctors by gender. `Male`, `Female` or `Non-binary`, any case. */
                 gender?: components["parameters"]["DoctorGender"];
                 /** @description Required with `sort_by=visited_before`. */
                 api_customer_id?: components["parameters"]["VisitedBeforeCustomer"];
@@ -3508,17 +3572,20 @@ export interface operations {
                 /** @description Start the multi-day window no earlier than this date. */
                 slot_start_date?: string;
                 /**
-                 * @description 6-digit Indian pincode. Required unless `latitude` and `longitude` are sent.
+                 * @description 6-digit pincode of the member's location. Derived from `latitude`/`longitude` when omitted.
                  * @example 500081
                  */
-                pincode?: components["parameters"]["PincodeQuery"];
+                pincode?: string;
                 /**
-                 * @description Decimal latitude (must include a decimal point). Required unless `pincode` is sent.
+                 * @description Decimal latitude. Required unless `pincode` is sent. When no pincode can be derived
+                 *     from the coordinates, the value must be non-negative and include a decimal point
+                 *     (for example `17.0`, not `17`).
                  * @example 17.4437
                  */
                 latitude?: components["parameters"]["LatitudeQuery"];
                 /**
-                 * @description Decimal longitude (must include a decimal point). Required unless `pincode` is sent.
+                 * @description Decimal longitude. Required unless `pincode` is sent. When no pincode can be derived
+                 *     from the coordinates, the value must be non-negative and include a decimal point.
                  * @example 78.386
                  */
                 longitude?: components["parameters"]["LongitudeQuery"];
@@ -4431,36 +4498,44 @@ export interface operations {
         parameters: {
             query: {
                 /**
-                 * @description Comma-separated package ids shared at onboarding.
+                 * @description Comma-separated package ids shared at onboarding, for example `1001,1002`. Each id
+                 *     must be a package of the requested benefit. The pattern is the server's own,
+                 *     unanchored check.
                  * @example 1001,1002
                  */
                 package_ids: components["parameters"]["PackageIdsQuery"];
                 /**
-                 * @description 6-digit Indian pincode. Required unless `latitude` and `longitude` are sent.
+                 * @description 6-digit pincode. Required unless `latitude` and `longitude` are sent (the pincode is
+                 *     then derived from them).
                  * @example 500081
                  */
                 pincode?: components["parameters"]["PincodeQuery"];
                 /**
-                 * @description Decimal latitude (must include a decimal point). Required unless `pincode` is sent.
+                 * @description Decimal latitude. Required unless `pincode` is sent. When no pincode can be derived
+                 *     from the coordinates, the value must be non-negative and include a decimal point
+                 *     (for example `17.0`, not `17`).
                  * @example 17.4437
                  */
                 latitude?: components["parameters"]["LatitudeQuery"];
                 /**
-                 * @description Decimal longitude (must include a decimal point). Required unless `pincode` is sent.
+                 * @description Decimal longitude. Required unless `pincode` is sent. When no pincode can be derived
+                 *     from the coordinates, the value must be non-negative and include a decimal point.
                  * @example 78.386
                  */
                 longitude?: components["parameters"]["LongitudeQuery"];
-                /** @description Search radius in km (1-100). Default 100. */
+                /** @description Search radius in km. Default 100. */
                 radius?: number;
                 /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
                 plan_id?: components["parameters"]["PlanIdQuery"];
+                /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
+                /** @description Page size, at most 50. Values below 1 are read as 1. */
                 per_page?: components["parameters"]["PerPage"];
                 /** @description In-clinic consultations only. `visited_before` also needs `api_customer_id`. */
                 sort_by?: components["parameters"]["SortBy"];
                 /** @description In-clinic consultations only. Default ascending for fee/distance, descending for experience/rating. */
                 sort_asc?: components["parameters"]["SortAsc"];
-                /** @description In-clinic consultations only. Filter doctors by gender. */
+                /** @description In-clinic consultations only. Filter doctors by gender. `Male`, `Female` or `Non-binary`, any case. */
                 gender?: components["parameters"]["DoctorGender"];
                 /** @description Required with `sort_by=visited_before`. */
                 api_customer_id?: components["parameters"]["VisitedBeforeCustomer"];
@@ -4532,7 +4607,9 @@ export interface operations {
         parameters: {
             query: {
                 /**
-                 * @description Comma-separated package ids shared at onboarding.
+                 * @description Comma-separated package ids shared at onboarding, for example `1001,1002`. Each id
+                 *     must be a package of the requested benefit. The pattern is the server's own,
+                 *     unanchored check.
                  * @example 1001,1002
                  */
                 package_ids: components["parameters"]["PackageIdsQuery"];
@@ -4540,7 +4617,9 @@ export interface operations {
                 default_provider?: boolean;
                 /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
                 plan_id?: components["parameters"]["PlanIdQuery"];
+                /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
+                /** @description Page size, at most 50. Values below 1 are read as 1. */
                 per_page?: components["parameters"]["PerPage"];
             };
             header?: {
@@ -4862,6 +4941,8 @@ export interface operations {
                      * @description New slot (`utc_slot_time` from `listSlots`).
                      */
                     appointment_date_time: string;
+                    /** @description Optional. If sent, must be the consultation's current provider. */
+                    provider_id?: number | string;
                 };
             };
         };
@@ -5219,7 +5300,7 @@ export interface operations {
         parameters: {
             query: {
                 /**
-                 * @description Search text, at least 3 characters.
+                 * @description Search text, at least 3 characters after trimming surrounding whitespace.
                  * @example paracetamol
                  */
                 name: string;
@@ -5728,6 +5809,7 @@ export interface operations {
             query: {
                 /** @description Your id for the member. */
                 "customer_details[api_customer_id]": components["parameters"]["CustomerDetailsApiCustomerId"];
+                /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
                 per_page?: number;
             };
@@ -6021,9 +6103,9 @@ export interface operations {
                  */
                 "application/json": {
                     customer_details: components["schemas"]["CustomerDetailsRef"];
-                    /** @description Decimal amount, for example "261.0". */
-                    partner_collected_amount: string;
-                    /** @description Your payment/transaction reference. */
+                    /** @description Decimal amount greater than 0, for example "261.0". */
+                    partner_collected_amount: string | number;
+                    /** @description Your payment/transaction reference (not blank; surrounding whitespace is trimmed). */
                     partner_payment_reference: string;
                 };
             };
@@ -6139,8 +6221,11 @@ export interface operations {
                  */
                 "application/json": {
                     customer_details: components["schemas"]["CustomerDetailsRef"];
-                    /** @description An order status (see `PharmacyOrderStatus`). */
-                    status: string;
+                    /**
+                     * @description An order status (see `PharmacyOrderStatus`).
+                     * @enum {string}
+                     */
+                    status: "received" | "cancellation_request" | "cancellation_inprogress" | "consultation_required" | "processed" | "rejected" | "invoice_pending" | "invoice_generated" | "onhold" | "cancelled" | "abandoned" | "packing" | "packed" | "delivery_postponed" | "out_for_delivery" | "delivered" | "in_transit" | "in_delivery" | "created" | "verification_pending" | "verified" | "failed" | "in_progress" | "error" | "out_of_stock" | "returned_and_refunded" | "returned" | "under_ops_verification" | "prescription_under_verification" | "prescription_on_hold" | "prescription_rejected" | "prescription_cancelled" | "ops_verified" | "ops_rejected";
                     status_text?: string;
                     status_description?: string;
                     tracking_number?: string;

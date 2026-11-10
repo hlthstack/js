@@ -25,7 +25,7 @@ export class Appointments {
 
   /** `GET /api/providers` (listProviders). Requires `pincode` or both `latitude` and `longitude`. */
   listProviders(params: ListProvidersParams, options?: RequestOptions): Promise<ProvidersResponse> {
-    return this.transport.request({ method: 'GET', path: '/api/providers', query: params }, options);
+    return this.transport.request({ operation: 'listProviders', method: 'GET', path: '/api/providers', query: params }, options);
   }
 
   /**
@@ -39,7 +39,13 @@ export class Appointments {
     options?: RequestOptions,
   ): Promise<SlotsResponse> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/providers/${providerId}/${benefitType}/slots`, query: params },
+      {
+        operation: 'listSlots',
+        method: 'GET',
+        path: path`/api/providers/${providerId}/${benefitType}/slots`,
+        params: { provider_id: providerId, benefit_type: benefitType },
+        query: params,
+      },
       options,
     );
   }
@@ -49,12 +55,12 @@ export class Appointments {
    * {@link get} or your webhooks whether the booking was created first.
    */
   create(params: CreateAppointmentParams, options?: RequestOptions): Promise<CreateAppointmentResponse> {
-    return this.transport.request({ method: 'POST', path: '/api/appointments', body: params }, options);
+    return this.transport.request({ operation: 'createAppointment', method: 'POST', path: '/api/appointments', body: params }, options);
   }
 
   /** `GET /api/appointments` (getAppointment). Pass `booking_id`, and optionally `appointment_id`. */
   get(params: GetAppointmentParams, options?: RequestOptions): Promise<BookingDetails> {
-    return this.transport.request({ method: 'GET', path: '/api/appointments', query: params }, options);
+    return this.transport.request({ operation: 'getAppointment', method: 'GET', path: '/api/appointments', query: params }, options);
   }
 
   /** `GET /api/appointments/customer_appointments` (listCustomerAppointments). Up to 50, newest first. */
@@ -63,7 +69,12 @@ export class Appointments {
     options?: RequestOptions,
   ): Promise<ListCustomerAppointmentsResponse> {
     return this.transport.request(
-      { method: 'GET', path: '/api/appointments/customer_appointments', query: params },
+      {
+        operation: 'listCustomerAppointments',
+        method: 'GET',
+        path: '/api/appointments/customer_appointments',
+        query: params,
+      },
       options,
     );
   }
@@ -74,7 +85,12 @@ export class Appointments {
     options?: RequestOptions,
   ): Promise<AppointmentPaymentDetailsResponse> {
     return this.transport.request(
-      { method: 'POST', path: '/api/appointments/payment_details', body: params },
+      {
+        operation: 'getAppointmentPaymentDetails',
+        method: 'POST',
+        path: '/api/appointments/payment_details',
+        body: params,
+      },
       options,
     );
   }
@@ -86,7 +102,13 @@ export class Appointments {
     options?: RequestOptions,
   ): Promise<PartialResult> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/bookings/${bookingId}/reschedule`, body: params },
+      {
+        operation: 'rescheduleBooking',
+        method: 'PATCH',
+        path: path`/api/bookings/${bookingId}/reschedule`,
+        params: { booking_id: bookingId },
+        body: params,
+      },
       options,
     );
   }
@@ -94,7 +116,12 @@ export class Appointments {
   /** `PATCH /api/bookings/{booking_id}/cancel` (cancelBooking). May partially succeed. */
   cancelBooking(bookingId: string, options?: RequestOptions): Promise<PartialResult> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/bookings/${bookingId}/cancel` },
+      {
+        operation: 'cancelBooking',
+        method: 'PATCH',
+        path: path`/api/bookings/${bookingId}/cancel`,
+        params: { booking_id: bookingId },
+      },
       options,
     );
   }
@@ -106,7 +133,13 @@ export class Appointments {
     options?: RequestOptions,
   ): Promise<Message> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/appointments/${appointmentId}/reschedule`, body: params },
+      {
+        operation: 'rescheduleAppointment',
+        method: 'PATCH',
+        path: path`/api/appointments/${appointmentId}/reschedule`,
+        params: { appointment_id: appointmentId },
+        body: params,
+      },
       options,
     );
   }
@@ -114,7 +147,12 @@ export class Appointments {
   /** `PATCH /api/appointments/{appointment_id}/cancel` (cancelAppointment). */
   cancel(appointmentId: string, options?: RequestOptions): Promise<Message> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/appointments/${appointmentId}/cancel` },
+      {
+        operation: 'cancelAppointment',
+        method: 'PATCH',
+        path: path`/api/appointments/${appointmentId}/cancel`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }
@@ -123,8 +161,10 @@ export class Appointments {
   getVoucher(appointmentId: string, options?: RequestOptions): Promise<ArrayBuffer> {
     return this.transport.request(
       {
+        operation: 'getAppointmentVoucher',
         method: 'GET',
         path: path`/api/appointments/${appointmentId}/voucher`,
+        params: { appointment_id: appointmentId },
         responseType: 'arrayBuffer',
       },
       options,
@@ -137,7 +177,12 @@ export class Appointments {
    */
   getReports(appointmentId: string, options?: RequestOptions): Promise<AppointmentReportsResponse> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/appointments/${appointmentId}/reports` },
+      {
+        operation: 'getAppointmentReports',
+        method: 'GET',
+        path: path`/api/appointments/${appointmentId}/reports`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }
@@ -145,7 +190,12 @@ export class Appointments {
   /** `GET /api/appointments/{appointment_id}/lab_results` (getAppointmentLabResults). Enabled on request. */
   getLabResults(appointmentId: string, options?: RequestOptions): Promise<LabResults> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/appointments/${appointmentId}/lab_results` },
+      {
+        operation: 'getAppointmentLabResults',
+        method: 'GET',
+        path: path`/api/appointments/${appointmentId}/lab_results`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }

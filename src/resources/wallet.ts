@@ -20,7 +20,13 @@ export class Wallet {
     options?: RequestOptions,
   ): Promise<WalletResponse> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/${companySlug}/customers/wallet`, query: params },
+      {
+        operation: 'getCustomerWallet',
+        method: 'GET',
+        path: path`/api/${companySlug}/customers/wallet`,
+        params: { company_slug: companySlug },
+        query: params,
+      },
       options,
     );
   }
@@ -32,7 +38,13 @@ export class Wallet {
     options?: RequestOptions,
   ): Promise<CustomerPlansResponse> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/${companySlug}/customers/plans`, query: params },
+      {
+        operation: 'listCustomerPlans',
+        method: 'GET',
+        path: path`/api/${companySlug}/customers/plans`,
+        params: { company_slug: companySlug },
+        query: params,
+      },
       options,
     );
   }

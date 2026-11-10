@@ -48,7 +48,7 @@ describe('multipart uploads', () => {
           },
         ],
         plan_id: 'EXAMPLE_PLAN',
-        files: [new Uint8Array([1, 2, 3]), new Blob(['jpg'], { type: 'image/jpeg' })],
+        files: [{ data: new Uint8Array([1, 2, 3]), filename: 'rx.pdf' }, new Blob(['jpg'], { type: 'image/jpeg' })],
       },
       { idempotencyKey: 'upload-0001' },
     );
@@ -64,7 +64,7 @@ describe('multipart uploads', () => {
     expect(body.get('plan_id')).toBe('EXAMPLE_PLAN');
     const files = body.getAll('files[]') as File[];
     expect(files).toHaveLength(2);
-    expect(files[0]!.type).toBe('application/octet-stream');
+    expect([files[0]!.name, files[0]!.type]).toEqual(['rx.pdf', 'application/pdf']);
     expect(new Uint8Array(await files[0]!.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]));
     expect(files[1]!.type).toBe('image/jpeg');
   });

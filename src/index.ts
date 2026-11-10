@@ -5,6 +5,7 @@ export {
   HlthstackBaseError,
   HlthstackConnectionError,
   HlthstackError,
+  HlthstackValidationError,
   extractErrorMessages,
 } from './errors.js';
 export { Appointments } from './resources/appointments.js';

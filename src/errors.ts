@@ -48,6 +48,26 @@ export class HlthstackError extends HlthstackBaseError {
   }
 }
 
+/**
+ * Thrown before any network call when a method's input breaks the API's documented rules
+ * (required fields, formats, patterns, ranges, cross-field rules). `errors` lists every
+ * problem found. Checks that need stored data (plan benefits, slot availability...) are left
+ * to the server and still arrive as {@link HlthstackError}.
+ */
+export class HlthstackValidationError extends HlthstackBaseError {
+  /** The operationId of the rejected call, for example `createAppointment`. */
+  readonly operation: string;
+  /** Every problem found. */
+  readonly errors: Array<{ path: string; message: string; rule: string }>;
+
+  constructor(operation: string, errors: Array<{ path: string; message: string; rule: string }>) {
+    const list = errors.map((e) => (e.path ? `${e.path}: ${e.message}` : e.message)).join('; ');
+    super(`Invalid ${operation} request (${errors.length} problem${errors.length === 1 ? '' : 's'}): ${list}`);
+    this.operation = operation;
+    this.errors = errors;
+  }
+}
+
 /** Thrown when the request never got an HTTP response (network failure or timeout). */
 export class HlthstackConnectionError extends HlthstackBaseError {
   readonly method: string;

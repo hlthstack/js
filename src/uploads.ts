@@ -33,15 +33,41 @@ function guessType(filename: string): string | undefined {
   return ext ? EXTENSION_TYPES[ext] : undefined;
 }
 
-/** Converts a {@link FileInput} into a Blob and filename for `FormData.append`. */
-export function toBlob(input: FileInput): { blob: Blob; filename: string } {
+function isBytes(value: unknown): value is Blob | ArrayBuffer | ArrayBufferView {
+  return (
+    (typeof Blob !== 'undefined' && value instanceof Blob) ||
+    value instanceof ArrayBuffer ||
+    ArrayBuffer.isView(value)
+  );
+}
+
+/** Whether `value` is a {@link FileInput}. */
+export function isFileInput(value: unknown): value is FileInput {
+  if (isBytes(value)) return true;
+  return typeof value === 'object' && value !== null && 'data' in value && isBytes(value.data);
+}
+
+function unpack(input: FileInput): { data: Blob | ArrayBuffer | ArrayBufferView; filename: string; contentType: string | undefined } {
   const { data, filename: explicitName, contentType } = isFileObject(input)
     ? input
     : { data: input, filename: undefined, contentType: undefined };
-
   const fileName =
     typeof File !== 'undefined' && data instanceof File && data.name ? data.name : undefined;
-  const filename = explicitName ?? fileName ?? 'file';
+  return { data, filename: explicitName ?? fileName ?? 'file', contentType };
+}
+
+/** The size, content type and filename a {@link FileInput} is uploaded with. */
+export function describeFile(input: FileInput): { size: number; type: string | undefined; filename: string } {
+  const { data, filename, contentType } = unpack(input);
+  if (data instanceof Blob) {
+    return { size: data.size, type: contentType ?? (data.type || guessType(filename)), filename };
+  }
+  return { size: data.byteLength, type: contentType ?? guessType(filename), filename };
+}
+
+/** Converts a {@link FileInput} into a Blob and filename for `FormData.append`. */
+export function toBlob(input: FileInput): { blob: Blob; filename: string } {
+  const { data, filename, contentType } = unpack(input);
 
   if (data instanceof Blob) {
     const type = contentType ?? (data.type || guessType(filename));

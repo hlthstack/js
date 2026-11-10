@@ -32,7 +32,13 @@ export class Testing {
   ): Promise<Messages> {
     this.assertStaging();
     return this.transport.request(
-      { method: 'POST', path: path`/api/appointments/${appointmentId}/update_status`, body: params },
+      {
+        operation: 'simulateAppointmentStatus',
+        method: 'POST',
+        path: path`/api/appointments/${appointmentId}/update_status`,
+        params: { appointment_id: appointmentId },
+        body: params,
+      },
       options,
     );
   }
@@ -45,7 +51,13 @@ export class Testing {
   ): Promise<Messages> {
     this.assertStaging();
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/consultations/${appointmentId}/update_status`, body: params },
+      {
+        operation: 'simulateConsultationStatus',
+        method: 'PATCH',
+        path: path`/api/consultations/${appointmentId}/update_status`,
+        params: { appointment_id: appointmentId },
+        body: params,
+      },
       options,
     );
   }
@@ -58,7 +70,13 @@ export class Testing {
   ): Promise<SimulateOrderStatusResponse> {
     this.assertStaging();
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/epharmacy/orders/${orderId}/update_status`, body: params },
+      {
+        operation: 'simulateOrderStatus',
+        method: 'PATCH',
+        path: path`/api/epharmacy/orders/${orderId}/update_status`,
+        params: { order_id: orderId },
+        body: params,
+      },
       options,
     );
   }

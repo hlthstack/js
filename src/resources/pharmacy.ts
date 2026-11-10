@@ -38,7 +38,7 @@ export class Pharmacy {
   /** `GET /api/epharmacy/medicines/search` (searchMedicines). `name` needs at least 3 characters. */
   searchMedicines(params: SearchMedicinesParams, options?: RequestOptions): Promise<MedicineSearchResponse> {
     return this.transport.request(
-      { method: 'GET', path: '/api/epharmacy/medicines/search', query: params },
+      { operation: 'searchMedicines', method: 'GET', path: '/api/epharmacy/medicines/search', query: params },
       options,
     );
   }
@@ -47,11 +47,12 @@ export class Pharmacy {
    * `POST /api/prescriptions/digitize` (digitizePrescription). Multipart upload; resolves with
    * the `202` body. Pass `idempotencyKey` to make retries safe.
    */
-  digitizePrescription(
+  async digitizePrescription(
     params: DigitizePrescriptionParams,
     options: DigitizePrescriptionOptions = {},
   ): Promise<DigitizationAccepted> {
     const { idempotencyKey, ...requestOptions } = options;
+    this.transport.validate('digitizePrescription', { form: params }, requestOptions);
     const form = new FormData();
     for (const customer of params.customers) {
       form.append('customers[][name]', customer.name);
@@ -79,14 +80,19 @@ export class Pharmacy {
   /** `GET /api/prescriptions/digitize/{request_id}` (getPrescriptionDigitization). */
   getPrescriptionDigitization(requestId: string, options?: RequestOptions): Promise<DigitizationStatus> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/prescriptions/digitize/${requestId}` },
+      {
+        operation: 'getPrescriptionDigitization',
+        method: 'GET',
+        path: path`/api/prescriptions/digitize/${requestId}`,
+        params: { request_id: requestId },
+      },
       options,
     );
   }
 
   /** `GET /api/epharmacy/cart` (getCart). One cart per member per plan. */
   getCart(params: GetCartParams, options?: RequestOptions): Promise<CartResponse> {
-    return this.transport.request({ method: 'GET', path: '/api/epharmacy/cart', query: params }, options);
+    return this.transport.request({ operation: 'getCart', method: 'GET', path: '/api/epharmacy/cart', query: params }, options);
   }
 
   /**
@@ -97,11 +103,12 @@ export class Pharmacy {
    * `prescription_files[]` (the multipart fields the spec defines). Send other changes in a
    * separate JSON call.
    */
-  updateCart(
+  async updateCart(
     params: UpdateCartParams | UpdateCartWithFilesParams,
     options?: RequestOptions,
   ): Promise<CartResponse> {
-    if ('prescription_files' in params) {
+    if (params && typeof params === 'object' && 'prescription_files' in params) {
+      this.transport.validate('updateCart', { form: params }, options);
       const form = new FormData();
       form.append('customer_details[api_customer_id]', params.customer_details.api_customer_id);
       if (params.plan_id !== undefined) form.append('plan_id', params.plan_id);
@@ -111,7 +118,10 @@ export class Pharmacy {
       }
       return this.transport.request({ method: 'PATCH', path: '/api/epharmacy/cart', form }, options);
     }
-    return this.transport.request({ method: 'PATCH', path: '/api/epharmacy/cart', body: params }, options);
+    return this.transport.request(
+      { operation: 'updateCart', method: 'PATCH', path: '/api/epharmacy/cart', body: params },
+      options,
+    );
   }
 
   /**
@@ -123,7 +133,12 @@ export class Pharmacy {
     options?: RequestOptions,
   ): Promise<FulfillmentOptions> {
     return this.transport.request(
-      { method: 'GET', path: '/api/epharmacy/fulfillment_options', query: params },
+      {
+        operation: 'getFulfillmentOptions',
+        method: 'GET',
+        path: '/api/epharmacy/fulfillment_options',
+        query: params,
+      },
       options,
     );
   }
@@ -134,25 +149,42 @@ export class Pharmacy {
     options?: RequestOptions,
   ): Promise<OrderPaymentDetails> {
     return this.transport.request(
-      { method: 'POST', path: '/api/epharmacy/orders/payment_details', body: params },
+      {
+        operation: 'getOrderPaymentDetails',
+        method: 'POST',
+        path: '/api/epharmacy/orders/payment_details',
+        body: params,
+      },
       options,
     );
   }
 
   /** `POST /api/epharmacy/orders` (createOrder). Note: `delivery_option`. */
   createOrder(params: CreateOrderParams, options?: RequestOptions): Promise<CreateOrderResponse> {
-    return this.transport.request({ method: 'POST', path: '/api/epharmacy/orders', body: params }, options);
+    return this.transport.request(
+      { operation: 'createOrder', method: 'POST', path: '/api/epharmacy/orders', body: params },
+      options,
+    );
   }
 
   /** `GET /api/epharmacy/orders` (listOrders). Newest first. */
   listOrders(params: ListOrdersParams, options?: RequestOptions): Promise<ListOrdersResponse> {
-    return this.transport.request({ method: 'GET', path: '/api/epharmacy/orders', query: params }, options);
+    return this.transport.request(
+      { operation: 'listOrders', method: 'GET', path: '/api/epharmacy/orders', query: params },
+      options,
+    );
   }
 
   /** `GET /api/epharmacy/orders/{order_id}` (getOrder). The source of truth for an order. */
   getOrder(orderId: string, params: GetOrderParams, options?: RequestOptions): Promise<GetOrderResponse> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/epharmacy/orders/${orderId}`, query: params },
+      {
+        operation: 'getOrder',
+        method: 'GET',
+        path: path`/api/epharmacy/orders/${orderId}`,
+        params: { order_id: orderId },
+        query: params,
+      },
       options,
     );
   }
@@ -160,7 +192,13 @@ export class Pharmacy {
   /** `PATCH /api/epharmacy/orders/{order_id}/cancel` (cancelOrder). */
   cancelOrder(orderId: string, params: CancelOrderParams, options?: RequestOptions): Promise<CancelOrderResponse> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/epharmacy/orders/${orderId}/cancel`, body: params },
+      {
+        operation: 'cancelOrder',
+        method: 'PATCH',
+        path: path`/api/epharmacy/orders/${orderId}/cancel`,
+        params: { order_id: orderId },
+        body: params,
+      },
       options,
     );
   }
@@ -175,7 +213,13 @@ export class Pharmacy {
     options?: RequestOptions,
   ): Promise<ConfirmOrderResponse> {
     return this.transport.request(
-      { method: 'POST', path: path`/api/epharmacy/orders/${orderId}/confirm`, body: params },
+      {
+        operation: 'confirmOrder',
+        method: 'POST',
+        path: path`/api/epharmacy/orders/${orderId}/confirm`,
+        params: { order_id: orderId },
+        body: params,
+      },
       options,
     );
   }

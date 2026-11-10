@@ -1,7 +1,7 @@
 // Smoke test for the built package (ESM). Run after `npm run build`: node test/smoke/smoke.mjs
 import { createHmac } from 'node:crypto';
 import assert from 'node:assert/strict';
-import { Hlthstack, HlthstackError, verifyWebhookSignature } from '../../dist/index.js';
+import { Hlthstack, HlthstackError, HlthstackValidationError, verifyWebhookSignature } from '../../dist/index.js';
 
 const fetch = async (url) => {
   if (String(url).endsWith('/api/get-access-token')) {
@@ -15,6 +15,11 @@ const client = new Hlthstack({ username: 'example-user', password: 'example-pass
 const res = await client.appointments.listProviders({ service_name: 'ahc', package_ids: '1001', pincode: '500081' });
 assert.equal(res.providers[0].provider_id, 1001);
 await assert.rejects(client.appointments.cancel('APT1A2B3C4D5'), HlthstackError);
+await assert.rejects(client.appointments.listProviders({ service_name: 'ahc', package_ids: '1001' }), (error) => {
+  assert.ok(error instanceof HlthstackValidationError);
+  assert.deepEqual(error.errors.map((e) => e.path), ['latitude', 'longitude']);
+  return true;
+});
 
 const b64 = (v) => Buffer.from(JSON.stringify(v)).toString('base64url');
 const now = Math.floor(Date.now() / 1000);

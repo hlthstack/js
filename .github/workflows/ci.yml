@@ -22,8 +22,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      - name: Generated types are up to date
-        run: npm run generate && git diff --exit-code src/generated
+      - name: Generated types and validation are up to date
+        run: npm run generate && git diff --exit-code src/generated && test -z "$(git status --porcelain src/generated)"
       - run: npm run typecheck
       - run: npm test
       - run: npm run build

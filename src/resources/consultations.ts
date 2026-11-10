@@ -27,7 +27,12 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<ProvidersResponse> {
     return this.transport.request(
-      { method: 'GET', path: '/api/consultations/inclinic_consultation/providers', query: params },
+      {
+        operation: 'listInclinicConsultationProviders',
+        method: 'GET',
+        path: '/api/consultations/inclinic_consultation/providers',
+        query: params,
+      },
       options,
     );
   }
@@ -41,7 +46,12 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<ProvidersResponse> {
     return this.transport.request(
-      { method: 'GET', path: '/api/consultations/specialist_consultation/providers', query: params },
+      {
+        operation: 'listSpecialistConsultationProviders',
+        method: 'GET',
+        path: '/api/consultations/specialist_consultation/providers',
+        query: params,
+      },
       options,
     );
   }
@@ -57,7 +67,13 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<SlotsResponse> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/providers/${providerId}/${benefitType}/slots`, query: params },
+      {
+        operation: 'listSlots',
+        method: 'GET',
+        path: path`/api/providers/${providerId}/${benefitType}/slots`,
+        params: { provider_id: providerId, benefit_type: benefitType },
+        query: params,
+      },
       options,
     );
   }
@@ -68,7 +84,12 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<CreateConsultationResponse> {
     return this.transport.request(
-      { method: 'POST', path: '/api/consultations/inclinic_consultation', body: params },
+      {
+        operation: 'createInclinicConsultation',
+        method: 'POST',
+        path: '/api/consultations/inclinic_consultation',
+        body: params,
+      },
       options,
     );
   }
@@ -79,7 +100,12 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<CreateConsultationResponse> {
     return this.transport.request(
-      { method: 'POST', path: '/api/consultations/specialist_consultation', body: params },
+      {
+        operation: 'createSpecialistConsultation',
+        method: 'POST',
+        path: '/api/consultations/specialist_consultation',
+        body: params,
+      },
       options,
     );
   }
@@ -87,7 +113,12 @@ export class Consultations {
   /** `GET /api/consultations/inclinic_consultation/{appointment_id}` (getInclinicConsultation). */
   getInclinic(appointmentId: string, options?: RequestOptions): Promise<ConsultationDetails> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/consultations/inclinic_consultation/${appointmentId}` },
+      {
+        operation: 'getInclinicConsultation',
+        method: 'GET',
+        path: path`/api/consultations/inclinic_consultation/${appointmentId}`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }
@@ -95,7 +126,12 @@ export class Consultations {
   /** `GET /api/consultations/specialist_consultation/{appointment_id}` (getSpecialistConsultation). */
   getSpecialist(appointmentId: string, options?: RequestOptions): Promise<ConsultationDetails> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/consultations/specialist_consultation/${appointmentId}` },
+      {
+        operation: 'getSpecialistConsultation',
+        method: 'GET',
+        path: path`/api/consultations/specialist_consultation/${appointmentId}`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }
@@ -107,7 +143,13 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<Message> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/consultations/${appointmentId}/reschedule`, body: params },
+      {
+        operation: 'rescheduleConsultation',
+        method: 'PATCH',
+        path: path`/api/consultations/${appointmentId}/reschedule`,
+        params: { appointment_id: appointmentId },
+        body: params,
+      },
       options,
     );
   }
@@ -115,7 +157,12 @@ export class Consultations {
   /** `PATCH /api/consultations/{appointment_id}/cancel` (cancelConsultation). Note the response key is `msg`. */
   cancel(appointmentId: string, options?: RequestOptions): Promise<CancelConsultationResponse> {
     return this.transport.request(
-      { method: 'PATCH', path: path`/api/consultations/${appointmentId}/cancel` },
+      {
+        operation: 'cancelConsultation',
+        method: 'PATCH',
+        path: path`/api/consultations/${appointmentId}/cancel`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }
@@ -129,7 +176,12 @@ export class Consultations {
     options?: RequestOptions,
   ): Promise<ConsultationSummaryAndPrescription> {
     return this.transport.request(
-      { method: 'GET', path: path`/api/consultations/${appointmentId}/summary_and_prescription` },
+      {
+        operation: 'getConsultationSummaryAndPrescription',
+        method: 'GET',
+        path: path`/api/consultations/${appointmentId}/summary_and_prescription`,
+        params: { appointment_id: appointmentId },
+      },
       options,
     );
   }
@@ -138,8 +190,10 @@ export class Consultations {
   getVoucher(appointmentId: string, options?: RequestOptions): Promise<ArrayBuffer> {
     return this.transport.request(
       {
+        operation: 'getConsultationVoucher',
         method: 'GET',
         path: path`/api/consultations/${appointmentId}/voucher`,
+        params: { appointment_id: appointmentId },
         responseType: 'arrayBuffer',
       },
       options,
@@ -150,11 +204,25 @@ export class Consultations {
    * `POST /api/consultations/{appointment_id}/upload_documents` (uploadConsultationDocuments).
    * Multipart: one `files[][name]` + `files[][value]` pair per document. PDF, JPEG or PNG.
    */
-  uploadDocuments(
+  async uploadDocuments(
     appointmentId: string,
     documents: ConsultationDocument[],
     options?: RequestOptions,
   ): Promise<Message> {
+    // Validated as the wire fields (`files[][name]`, `files[][value]`), reported as `documents`.
+    this.transport.validate(
+      'uploadConsultationDocuments',
+      {
+        params: { appointment_id: appointmentId },
+        form: {
+          files: Array.isArray(documents)
+            ? documents.map((doc) => (doc && typeof doc === 'object' ? { name: doc.name, value: doc.file } : doc))
+            : documents,
+        },
+      },
+      options,
+      (p) => p.replace(/^files/, 'documents').replace(/^(documents\[\d+\])\.value/, '$1.file'),
+    );
     const form = new FormData();
     for (const doc of documents) {
       const { blob, filename } = toBlob(doc.file);

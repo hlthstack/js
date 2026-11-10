@@ -3689,7 +3689,7 @@ components:
     PharmacyOrderWebhook:
       type: object
       properties:
-        type: {type: string, const: status_update}
+        type: {type: string, enum: [status_update, post_billing, additional_payment_required], description: "status_update here; post_billing and additional_payment_required extend this payload."}
         order_id: {type: string}
         customer_id: {type: string}
         api_customer_id: {type: [string, 'null']}

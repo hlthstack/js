@@ -2377,8 +2377,11 @@ export interface components {
          *     }
          */
         PharmacyOrderWebhook: {
-            /** @constant */
-            type?: "status_update";
+            /**
+             * @description status_update here; post_billing and additional_payment_required extend this payload.
+             * @enum {string}
+             */
+            type?: "status_update" | "post_billing" | "additional_payment_required";
             order_id?: string;
             customer_id?: string;
             api_customer_id?: string | null;

@@ -2,6 +2,7 @@ import { Transport, type ClientOptions, type Environment } from './core.js';
 import { Appointments } from './resources/appointments.js';
 import { Consultations } from './resources/consultations.js';
 import { Pharmacy } from './resources/pharmacy.js';
+import { PreRegistration } from './resources/preRegistration.js';
 import { Testing } from './resources/testing.js';
 import { Wallet } from './resources/wallet.js';
 import type { AccessToken } from './types.js';
@@ -40,6 +41,8 @@ export class Hlthstack {
   readonly pharmacy: Pharmacy;
   /** Benefit wallets and plan subscriptions. */
   readonly wallet: Wallet;
+  /** Bulk member and dependant registration (separate credentials). */
+  readonly preRegistration: PreRegistration;
   /** Staging-only lifecycle simulators. */
   readonly testing: Testing;
 
@@ -52,6 +55,7 @@ export class Hlthstack {
     this.consultations = new Consultations(transport);
     this.pharmacy = new Pharmacy(transport);
     this.wallet = new Wallet(transport);
+    this.preRegistration = new PreRegistration(transport);
     this.testing = new Testing(transport);
   }
 }

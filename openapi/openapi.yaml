@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: hlthstack API
   version: 1.0.0
-  summary: Partner REST API for health checkups, lab tests, doctor consultations, ePharmacy and benefit wallets.
+  summary: Partner REST API for health checkups, lab tests, doctor consultations, ePharmacy, benefit wallets and member pre-registration.
   description: |
     The hlthstack API lets partners book and manage health benefits for their members:
     health checkups and lab tests, in-clinic and online specialist consultations, ePharmacy
@@ -12,6 +12,9 @@ info:
     **Authentication.** Call `getAccessToken` with HTTP Basic credentials issued by hlthstack.
     It returns a bearer token valid for 1 hour. Send it as `Authorization: Bearer <token>` on
     every other call. Multi-entity partners also send `API-ENTITY-ID` and `API-SECRET-KEY`.
+
+    **Pre-registration** (tag `Pre-registration`) uses its own credentials and token: call
+    `getPreRegistrationAccessToken` with HTTP Basic and send the token as `X-EKINCARE-KEY`.
 
     **Conventions.**
     - Request and response bodies are JSON unless stated otherwise (vouchers are PDF, some
@@ -43,6 +46,8 @@ tags:
     description: Medicine search, prescription digitization, cart, pricing and orders.
   - name: Wallet
     description: Member benefit wallets and plan subscriptions.
+  - name: Pre-registration
+    description: Register, update and deactivate members and their dependants in bulk. Uses its own credentials and token (`X-EKINCARE-KEY`).
   - name: Testing
     description: Staging-only endpoints that move a booking or order through its lifecycle and fire the real webhooks.
 
@@ -2286,6 +2291,278 @@ paths:
         '422':
           $ref: '#/components/responses/CustomerIdRequired'
 
+  # ---------------------------------------------------------------- Pre-registration
+  /api/pre_registration/access-token:
+    get:
+      operationId: getPreRegistrationAccessToken
+      tags: [Pre-registration]
+      summary: Get a pre-registration access token
+      description: |
+        Exchanges your **pre-registration** credentials (HTTP Basic: the account email and
+        password hlthstack issued for pre-registration, not your booking API credentials) for
+        a token. Send it as the `X-EKINCARE-KEY` header on the other pre-registration calls.
+
+        The token is valid for 1 hour. `expires_at` is a UTC timestamp in the form
+        `2026-01-15 07:16:21 UTC` (not ISO 8601). Every call issues a new token; there is no
+        refresh token.
+      security:
+        - preRegistrationBasicAuth: []
+      responses:
+        '200':
+          description: Token issued.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PreRegistrationAccessToken'}
+              example:
+                access_token: YOUR_PRE_REGISTRATION_TOKEN
+                expires_at: '2026-01-15 07:16:21 UTC'
+        '401':
+          description: Missing or wrong credentials.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageError'}
+              example: {message: Wrong credentials}
+
+  /v1/corporate/pre_registrations:
+    post:
+      operationId: createPreRegistrations
+      tags: [Pre-registration]
+      summary: Pre-register members and dependants
+      description: |
+        Queues members (`employees`) and their dependants for registration and returns a
+        `request_id`. Processing is asynchronous: poll `getPreRegistrationStatus` for each
+        row's outcome. Employees are processed before dependants, so a dependant can refer to
+        an employee sent in the same request.
+
+        - Send `employees`, `dependants` or both; at most **250 rows in total** per request.
+        - **Every key marked required must be present in every row**, even when its value is
+          empty (`""` or `null`). A row missing a required key is dropped silently: it is not
+          registered and is not reported in the status. If no row is left, the call fails
+          with `400`.
+        - Each employee needs `company_id` (a company your credentials can act on) and an
+          `email` or an `employee_code`.
+        - Each dependant is linked to its employee by `guardian_email`, or by `company_id`
+          plus `guardian_employee_code` when the employee has no email.
+      security:
+        - preRegistrationKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreatePreRegistrationsRequest'}
+            example:
+              employees:
+                - employee_code: EMP1001
+                  company_id: '1001'
+                  first_name: Jane
+                  last_name: Doe
+                  email: jane.doe@example.com
+                  date_of_birth: 24-08-1990
+                  gender: Female
+                  employee_office_location: Hyderabad
+                  department: Engineering
+                  mobile_number: '9999999999'
+                  vip: 'No'
+                  entity_name: ''
+                  grade: B
+                  date_of_joining: 01-01-2026
+                  voluntary_plan_ids: [EXAMPLE_TOPUP]
+              dependants:
+                - guardian_email: jane.doe@example.com
+                  dependent_code: DEP-001
+                  first_name: John
+                  last_name: Doe
+                  date_of_birth: 10-02-1960
+                  gender: Male
+                  mobile_number: '9999999998'
+                  relation: Father
+      responses:
+        '200':
+          $ref: '#/components/responses/PreRegistrationAccepted'
+        '400':
+          $ref: '#/components/responses/PreRegistrationInvalid'
+        '401':
+          $ref: '#/components/responses/PreRegistrationUnauthorized'
+        '403':
+          $ref: '#/components/responses/PreRegistrationForbidden'
+        '422':
+          $ref: '#/components/responses/PreRegistrationFailed'
+
+  /v1/corporate/pre_registrations/update:
+    post:
+      operationId: updatePreRegistrations
+      tags: [Pre-registration]
+      summary: Update registered members and dependants
+      description: |
+        Queues updates to registered members and dependants and returns a `request_id`; poll
+        `getPreRegistrationStatus` for each row's outcome. Send only the identifier and the
+        fields to change. At most 250 rows in total per request.
+
+        - An employee is found by `email`, or by `company_id` plus `employee_code` when no
+          email is sent. The email itself can't be changed here.
+        - A dependant is found by `api_customer_id`, then `dependent_code`, under the employee
+          given by `guardian_email` (or `company_id` plus `guardian_employee_code`); otherwise
+          by `mobile_number`, which must match exactly one dependant. At least one of
+          `api_customer_id`, `dependent_code` or `mobile_number` is required.
+        - `mobile_number` in an update is stored as the member's alternate mobile number.
+        - `voluntary_plan_ids` takes the same entries as `createPreRegistrations`. On a
+          dependant it is refused (the rest of the row is still applied).
+      security:
+        - preRegistrationKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdatePreRegistrationsRequest'}
+            example:
+              employees:
+                - email: jane.doe@example.com
+                  department: Finance
+                  grade: C
+              dependants:
+                - guardian_email: jane.doe@example.com
+                  dependent_code: DEP-001
+                  last_name: Doe-Smith
+      responses:
+        '200':
+          $ref: '#/components/responses/PreRegistrationAccepted'
+        '400':
+          $ref: '#/components/responses/PreRegistrationInvalid'
+        '401':
+          $ref: '#/components/responses/PreRegistrationUnauthorized'
+        '403':
+          $ref: '#/components/responses/PreRegistrationForbidden'
+        '422':
+          $ref: '#/components/responses/PreRegistrationFailed'
+
+  /v1/corporate/pre_registrations/deactivate:
+    post:
+      operationId: deactivatePreRegistrations
+      tags: [Pre-registration]
+      summary: Deactivate members or dependants
+      description: |
+        Queues deactivations and returns a `request_id`; poll `getPreRegistrationStatus` for
+        each one's outcome. `employees` lists employee emails, `dependants` lists dependant
+        mobile numbers. At most 250 entries in total per request.
+
+        Deactivating an employee also deactivates all their dependants and cancels their
+        ongoing appointments. Only members of companies your credentials can act on are
+        deactivated.
+      security:
+        - preRegistrationKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/DeactivatePreRegistrationsRequest'}
+            example:
+              employees: [jane.doe@example.com]
+      responses:
+        '200':
+          $ref: '#/components/responses/PreRegistrationAccepted'
+        '400':
+          $ref: '#/components/responses/PreRegistrationInvalid'
+        '401':
+          $ref: '#/components/responses/PreRegistrationUnauthorized'
+        '403':
+          $ref: '#/components/responses/PreRegistrationForbidden'
+        '422':
+          $ref: '#/components/responses/PreRegistrationFailed'
+
+  /v1/corporate/pre_registrations/{request_id}/status:
+    parameters:
+      - name: request_id
+        in: path
+        required: true
+        description: The `request_id` returned by a create, update or deactivate call.
+        schema: {type: string, format: uuid}
+        example: 3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01
+    get:
+      operationId: getPreRegistrationStatus
+      tags: [Pre-registration]
+      summary: Get the outcome of a pre-registration request
+      description: |
+        The request's processing `status` and its rows, split into `success_records` and
+        `failure_records`. Poll until `status` is `completed`; records are added while the
+        request is `inprogress`.
+
+        - Create and update requests: each success record is the member as stored (dependants
+          included, with `guardian_email` and `relation`); employees carry `customer_plans`.
+          Each failure record echoes the row with its `errors`.
+        - Deactivate requests: success records carry `status` (`Active`/`Inactive`);
+          failure records are `{"errors": ["..."]}` only.
+      security:
+        - preRegistrationKey: []
+      responses:
+        '200':
+          description: The request and its results so far.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PreRegistrationStatus'}
+              example:
+                request_id: 3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01
+                status: completed
+                success_records:
+                  - employee_code: EMP1001
+                    first_name: Jane
+                    last_name: Doe
+                    email: jane.doe@example.com
+                    date_of_birth: '1990-08-24'
+                    gender: Female
+                    mobile_number: '9999999999'
+                    vip: 'No'
+                    entity_name: null
+                    employee_office_location: Hyderabad
+                    department: Engineering
+                    customer_token: EXAMPLE_CUSTOMER_TOKEN
+                    errors: []
+                    grade: B
+                    guardian_email: null
+                    relation: null
+                    customer_plans:
+                      - customer_plan_id: 101
+                        subscription_id: null
+                        plan_id: EXAMPLE_TOPUP
+                        plan_name: Top-up
+                        start_date: '2026-01-15'
+                        end_date: '2026-12-31'
+                        grace_end_date: '2027-01-31'
+                        status: active
+                failure_records:
+                  - employee_code: EMP1002
+                    first_name: Sam
+                    last_name: Roe
+                    email: sam.roe@example
+                    date_of_birth: 31-02-1990
+                    gender: Male
+                    mobile_number: '12345'
+                    vip: 'No'
+                    entity_name: ''
+                    employee_office_location: Hyderabad
+                    department: Engineering
+                    guardian_email: null
+                    errors:
+                      - Email is invalid
+                      - Date of birth is invalid - valid format is DD-MM-YYYY or DD/MM/YYYY
+                      - Mobile number is not in the correct format for India
+                created_at: '2026-01-15T06:16:21Z'
+        '401':
+          $ref: '#/components/responses/PreRegistrationUnauthorized'
+        '403':
+          $ref: '#/components/responses/PreRegistrationForbidden'
+        '404':
+          description: No request with that id.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageError'}
+              example: {message: Request couldn't find with the id provided}
+        '422':
+          description: The status could not be read.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageError'}
+              example: {message: Something went wrong}
+
 # ================================================================== Webhooks
 webhooks:
   appointmentStatusUpdate:
@@ -2487,6 +2764,20 @@ components:
       type: http
       scheme: bearer
       description: Access token from `getAccessToken`, valid for 1 hour.
+    preRegistrationBasicAuth:
+      type: http
+      scheme: basic
+      description: |
+        Pre-registration credentials issued by hlthstack: the account email as the username,
+        and its password. Separate from the booking API credentials. Used only by
+        `getPreRegistrationAccessToken`.
+    preRegistrationKey:
+      type: apiKey
+      in: header
+      name: X-EKINCARE-KEY
+      description: |
+        Token from `getPreRegistrationAccessToken`, valid for 1 hour. Send the token itself,
+        without a `Bearer` prefix.
 
   parameters:
     ApiEntityId:
@@ -2748,6 +3039,39 @@ components:
               - $ref: '#/components/schemas/ErrorMessages'
               - $ref: '#/components/schemas/BookingFailure'
           example: {errors: {messages: [customer has an ongoing appointment for same package and provider for same slot]}}
+    PreRegistrationAccepted:
+      description: Accepted for processing. Poll `getPreRegistrationStatus` with `request_id`.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/PreRegistrationAccepted'}
+          example:
+            message: Request has been accepted
+            request_id: 3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01
+    PreRegistrationInvalid:
+      description: |
+        `missing param or invalid params`: `employees`/`dependants` is not a non-empty array,
+        or no row has all the required keys. `Request is too large`: more than 250 rows in
+        total.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/MessageError'}
+          examples:
+            invalid:
+              value: {message: missing param or invalid params}
+            tooLarge:
+              value: {message: Request is too large}
+    PreRegistrationUnauthorized:
+      description: |
+        Missing, invalid or expired `X-EKINCARE-KEY` token, or the company's contract has
+        ended. The body is empty.
+    PreRegistrationForbidden:
+      description: The account's role may not use the pre-registration API. The body is empty.
+    PreRegistrationFailed:
+      description: The request could not be queued.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/MessageError'}
+          example: {message: something went wrong}
 
   schemas:
     # ---------- generic
@@ -3869,3 +4193,245 @@ components:
                   grace_end_date: {type: [string, 'null'], format: date}
                   status: {type: string, enum: [active, upcoming, grace]}
                   available_balance: {type: number}
+
+    # ---------- pre-registration
+    PreRegistrationAccessToken:
+      type: object
+      required: [access_token, expires_at]
+      properties:
+        access_token: {type: string}
+        expires_at:
+          type: string
+          description: UTC, formatted `YYYY-MM-DD HH:MM:SS UTC` (not ISO 8601).
+          example: '2026-01-15 07:16:21 UTC'
+    PreRegistrationAccepted:
+      type: object
+      required: [message, request_id]
+      properties:
+        message: {type: string, example: Request has been accepted}
+        request_id: {type: string, format: uuid}
+    VoluntaryPlanEntry:
+      description: |
+        A plan id shared at onboarding, or an object naming one subscription. Without
+        `additional: true`, a subscription the member already holds on the plan is reused.
+      oneOf:
+        - type: string
+          example: EXAMPLE_TOPUP
+        - type: object
+          required: [plan_id]
+          properties:
+            plan_id: {type: string}
+            start_date:
+              type: string
+              description: '`DD-MM-YYYY` or `YYYY-MM-DD`. Defaults to today; must not be after the plan''s end date.'
+            additional:
+              type: boolean
+              description: Add another subscription to the plan, up to the plan's subscription limit. Counts only with `subscription_id`.
+            subscription_id:
+              type: string
+              description: Your own order id. Resending it returns the subscription it created, so retries never duplicate.
+    PreRegistrationEmployee:
+      type: object
+      description: |
+        One member (employee). Every key in `required` must be present, even with an empty
+        value; a row missing one is dropped without being reported. Identify the employee by
+        `email`, or by `employee_code` within `company_id`.
+      required: [company_id, employee_code, first_name, last_name, date_of_birth, gender, mobile_number, vip, entity_name, employee_office_location, department, grade, date_of_joining]
+      properties:
+        company_id:
+          type: [string, integer]
+          description: The company (or entity) the member belongs to, shared at onboarding. Must be one your credentials can act on.
+        employee_code:
+          type: [string, 'null']
+          description: Required (non-empty) when there is no `email`. Unique within the company.
+        email:
+          type: [string, 'null']
+          description: Required when `employee_code` is empty. Unique.
+        first_name: {type: string}
+        last_name: {type: [string, 'null']}
+        date_of_birth: {type: [string, 'null'], description: '`DD-MM-YYYY` or `DD/MM/YYYY`.'}
+        gender: {type: [string, 'null'], description: '`Male`, `Female` or `Non-binary` (any case).'}
+        mobile_number: {type: [string, 'null'], description: 10-digit mobile number without the country code.}
+        vip: {type: [string, 'null'], description: '`Yes` or `No` (any case).'}
+        entity_name: {type: [string, 'null']}
+        employee_office_location: {type: [string, 'null']}
+        department: {type: [string, 'null']}
+        grade: {type: [string, 'null']}
+        date_of_joining: {type: [string, 'null'], description: '`DD-MM-YYYY` or `DD/MM/YYYY`.'}
+        api_customer_id: {type: [string, 'null'], description: Your id for the member.}
+        voluntary_plan_ids:
+          type: array
+          items: {$ref: '#/components/schemas/VoluntaryPlanEntry'}
+    PreRegistrationDependant:
+      type: object
+      description: |
+        One dependant. Every key in `required` must be present, even with an empty value; a
+        row missing one is dropped without being reported. Link it to its employee with
+        `guardian_email`, or with `company_id` plus `guardian_employee_code`.
+        `voluntary_plan_ids` is not accepted on dependants: the dependant is registered but
+        the row is reported as failed.
+      required: [first_name, last_name, date_of_birth, gender, mobile_number, relation]
+      properties:
+        guardian_email: {type: [string, 'null'], description: The employee's email.}
+        company_id: {type: [string, integer, 'null'], description: The employee's company. Used with `guardian_employee_code`.}
+        guardian_employee_code: {type: [string, 'null'], description: The employee's `employee_code`. Used with `company_id` when the employee has no email.}
+        dependent_code: {type: [string, 'null'], description: 'Your id for the dependant. Unique per employee, case-insensitive.'}
+        email: {type: [string, 'null']}
+        first_name: {type: string}
+        last_name: {type: [string, 'null']}
+        date_of_birth: {type: [string, 'null'], description: '`DD-MM-YYYY` or `DD/MM/YYYY`.'}
+        gender: {type: [string, 'null'], description: '`Male` or `Female` (any case).'}
+        mobile_number: {type: [string, 'null'], description: 10-digit mobile number without the country code.}
+        relation:
+          type: [string, 'null']
+          description: 'One of `Father`, `Mother`, `Brother`, `Sister`, `Husband`, `Wife`, `Son`, `Daughter`, `Father in law`, `Mother in law`.'
+        api_customer_id: {type: [string, 'null'], description: Your id for the dependant.}
+        authorised_dependent: {type: [string, 'null'], description: '`Yes` or `No`. Defaults to `Yes`.'}
+    PreRegistrationEmployeeUpdate:
+      type: object
+      description: |
+        Identify the employee by `email`, or by `company_id` plus `employee_code`; send only
+        the fields to change. `email` can't be changed. `mobile_number` is stored as the
+        alternate mobile number.
+      properties:
+        email: {type: string}
+        company_id: {type: [string, integer]}
+        employee_code: {type: [string, 'null']}
+        first_name: {type: string}
+        last_name: {type: [string, 'null']}
+        date_of_birth: {type: [string, 'null']}
+        gender: {type: [string, 'null']}
+        mobile_number: {type: [string, 'null']}
+        vip: {type: [string, 'null']}
+        entity_name: {type: [string, 'null']}
+        employee_office_location: {type: [string, 'null']}
+        department: {type: [string, 'null']}
+        grade: {type: [string, 'null'], description: Must be one of the company's grades.}
+        date_of_joining: {type: [string, 'null']}
+        api_customer_id: {type: [string, 'null']}
+        voluntary_plan_ids:
+          type: array
+          items: {$ref: '#/components/schemas/VoluntaryPlanEntry'}
+    PreRegistrationDependantUpdate:
+      type: object
+      description: |
+        Identify the dependant by `api_customer_id` or `dependent_code` (with the employee's
+        `guardian_email`, or `company_id` plus `guardian_employee_code`), or by
+        `mobile_number`. Send only the fields to change. Sending `dependent_code` on a
+        dependant found another way sets its code; an empty one never clears it.
+      properties:
+        guardian_email: {type: string}
+        company_id: {type: [string, integer]}
+        guardian_employee_code: {type: string}
+        api_customer_id: {type: string}
+        dependent_code: {type: string}
+        mobile_number: {type: string}
+        first_name: {type: string}
+        last_name: {type: [string, 'null']}
+        email: {type: [string, 'null']}
+        date_of_birth: {type: [string, 'null']}
+        gender: {type: [string, 'null']}
+        relation: {type: string}
+        authorised_dependent: {type: string, description: '`Yes` or `No`.'}
+    CreatePreRegistrationsRequest:
+      type: object
+      description: At most 250 rows in `employees` and `dependants` together.
+      properties:
+        employees:
+          type: array
+          items: {$ref: '#/components/schemas/PreRegistrationEmployee'}
+        dependants:
+          type: array
+          items: {$ref: '#/components/schemas/PreRegistrationDependant'}
+    UpdatePreRegistrationsRequest:
+      type: object
+      description: At most 250 rows in `employees` and `dependants` together.
+      properties:
+        employees:
+          type: array
+          items: {$ref: '#/components/schemas/PreRegistrationEmployeeUpdate'}
+        dependants:
+          type: array
+          items: {$ref: '#/components/schemas/PreRegistrationDependantUpdate'}
+    DeactivatePreRegistrationsRequest:
+      type: object
+      description: At most 250 entries in `employees` and `dependants` together.
+      properties:
+        employees:
+          type: array
+          description: Emails of the employees to deactivate.
+          items: {type: string}
+        dependants:
+          type: array
+          description: Mobile numbers of the dependants to deactivate.
+          items: {type: string}
+    PreRegistrationSuccessRecord:
+      type: object
+      properties:
+        employee_code: {type: [string, 'null'], description: "The employee code, or a dependant's `dependent_code`."}
+        first_name: {type: [string, 'null']}
+        last_name: {type: [string, 'null']}
+        email: {type: [string, 'null']}
+        date_of_birth: {type: [string, 'null'], format: date}
+        gender: {type: [string, 'null']}
+        mobile_number: {type: [string, 'null']}
+        vip: {type: string, enum: ['Yes', 'No']}
+        entity_name: {type: [string, 'null']}
+        employee_office_location: {type: [string, 'null']}
+        department: {type: [string, 'null']}
+        customer_token: {type: [string, 'null'], description: hlthstack's token for the member.}
+        errors: {type: array, items: {type: string}}
+        grade: {type: [string, 'null']}
+        guardian_email: {type: [string, 'null'], description: Dependants only.}
+        relation: {type: [string, 'null'], description: Dependants only.}
+        customer_plans:
+          type: array
+          description: Create and update requests only. The member's active, upcoming and grace-period subscriptions.
+          items:
+            type: object
+            properties:
+              customer_plan_id: {type: integer}
+              subscription_id: {type: [string, 'null']}
+              plan_id: {type: [string, 'null']}
+              plan_name: {type: [string, 'null']}
+              start_date: {type: string, format: date}
+              end_date: {type: string, format: date}
+              grace_end_date: {type: string, format: date}
+              status: {type: string, enum: [active, upcoming, grace]}
+        status: {type: string, enum: [Active, Inactive], description: Deactivate requests only.}
+    PreRegistrationFailureRecord:
+      type: object
+      description: |
+        Create and update requests echo the row's fields with `errors`. Deactivate requests
+        return `errors` only.
+      required: [errors]
+      properties:
+        employee_code: {type: [string, 'null']}
+        first_name: {type: [string, 'null']}
+        last_name: {type: [string, 'null']}
+        email: {type: [string, 'null']}
+        date_of_birth: {type: [string, 'null']}
+        gender: {type: [string, 'null']}
+        mobile_number: {type: [string, 'null']}
+        vip: {type: [string, 'null']}
+        entity_name: {type: [string, 'null']}
+        employee_office_location: {type: [string, 'null']}
+        department: {type: [string, 'null']}
+        guardian_email: {type: [string, 'null']}
+        errors: {type: array, items: {type: string}}
+    PreRegistrationStatus:
+      type: object
+      required: [request_id, status, success_records, failure_records, created_at]
+      properties:
+        request_id: {type: string, format: uuid}
+        status:
+          type: string
+          enum: [initialized, scheduled, inprogress, completed, failed]
+          description: Rows are processed while `inprogress`; results are final at `completed`.
+        success_records:
+          type: array
+          items: {$ref: '#/components/schemas/PreRegistrationSuccessRecord'}
+        failure_records:
+          type: array
+          items: {$ref: '#/components/schemas/PreRegistrationFailureRecord'}
+        created_at: {type: string, format: date-time}

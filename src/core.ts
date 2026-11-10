@@ -16,10 +16,17 @@ const DEFAULT_TOKEN_LIFETIME_MS = 60 * 60 * 1000;
 export const DEFAULT_TIMEOUT_MS = 60_000;
 
 export interface ClientOptions {
-  /** Username issued by hlthstack. */
-  username: string;
-  /** Password issued by hlthstack. */
-  password: string;
+  /** Username issued by hlthstack. Required unless you only use pre-registration. */
+  username?: string;
+  /** Password issued by hlthstack. Required unless you only use pre-registration. */
+  password?: string;
+  /**
+   * Pre-registration login (account email) issued by hlthstack. Separate from `username`;
+   * needed only for `client.preRegistration.*`.
+   */
+  preRegistrationUsername?: string;
+  /** Pre-registration password. Needed only for `client.preRegistration.*`. */
+  preRegistrationPassword?: string;
   /** `production` (https://api.hlthstack.io) or `staging` (https://staging-api.hlthstack.io). */
   environment: Environment;
   /** Overrides the environment's base URL (for proxies or tests). */
@@ -36,6 +43,9 @@ export interface ClientOptions {
   /** Per-request timeout in milliseconds. Default 60000. */
   timeoutMs?: number;
 }
+
+export const TOKEN_PATH = '/api/get-access-token';
+export const PRE_REGISTRATION_TOKEN_PATH = '/api/pre_registration/access-token';
 
 /** Options accepted by every API method as the last argument. */
 export interface RequestOptions {
@@ -120,22 +130,57 @@ function parseBody(text: string): unknown {
   }
 }
 
+/** Caches one kind of access token and shares a pending request between concurrent callers. */
+class TokenCache {
+  private cached: CachedToken | undefined;
+  private inflight: Promise<CachedToken> | undefined;
+
+  constructor(private readonly fetchToken: () => Promise<AccessToken>) {}
+
+  async get(options?: { forceRefresh?: boolean }): Promise<AccessToken> {
+    if (!options?.forceRefresh && this.cached && Date.now() < this.cached.refreshAt) {
+      return this.cached.token;
+    }
+    if (!this.inflight) {
+      // Shared by concurrent callers, so it deliberately ignores any one caller's AbortSignal.
+      this.inflight = this.fetchToken()
+        .then((token) => {
+          const expiresAt = Date.parse(token.expires_at);
+          const expiry = Number.isFinite(expiresAt) ? expiresAt : Date.now() + DEFAULT_TOKEN_LIFETIME_MS;
+          this.cached = { token, refreshAt: expiry - TOKEN_REFRESH_MARGIN_MS };
+          return this.cached;
+        })
+        .finally(() => {
+          this.inflight = undefined;
+        });
+    }
+    return (await this.inflight).token;
+  }
+
+  /** Drops the cached token if it is the one that was just rejected. */
+  invalidate(accessToken: string): void {
+    if (this.cached?.token.access_token === accessToken) this.cached = undefined;
+  }
+}
+
 /** HTTP transport: auth, entity headers, timeouts and error mapping. Internal. */
 export class Transport {
   readonly environment: Environment;
   readonly baseUrl: string;
-  private readonly username: string;
-  private readonly password: string;
   private readonly entityId: string | undefined;
   private readonly secretKey: string | undefined;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
-  private cached: CachedToken | undefined;
-  private inflight: Promise<CachedToken> | undefined;
+  private readonly tokens: TokenCache;
+  private readonly preRegistrationTokens: TokenCache;
 
   constructor(options: ClientOptions) {
-    if (!options || !options.username || !options.password) {
-      throw new HlthstackBaseError('`username` and `password` are required');
+    const partner = Boolean(options?.username && options.password);
+    const preRegistration = Boolean(options?.preRegistrationUsername && options.preRegistrationPassword);
+    if (!partner && !preRegistration) {
+      throw new HlthstackBaseError(
+        '`username` and `password` are required (or `preRegistrationUsername` and `preRegistrationPassword`)',
+      );
     }
     if (!options.baseUrl && !(options.environment in BASE_URLS)) {
       throw new HlthstackBaseError("`environment` must be 'production' or 'staging'");
@@ -149,61 +194,91 @@ export class Transport {
     }
     this.environment = options.environment;
     this.baseUrl = (options.baseUrl ?? BASE_URLS[options.environment]).replace(/\/+$/, '');
-    this.username = options.username;
-    this.password = options.password;
     this.entityId = options.entityId || undefined;
     this.secretKey = options.secretKey || undefined;
     this.fetchImpl = fetchImpl;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.tokens = new TokenCache(() =>
+      this.fetchToken(TOKEN_PATH, options.username, options.password, '`username` and `password`'),
+    );
+    this.preRegistrationTokens = new TokenCache(() =>
+      this.fetchToken(
+        PRE_REGISTRATION_TOKEN_PATH,
+        options.preRegistrationUsername,
+        options.preRegistrationPassword,
+        '`preRegistrationUsername` and `preRegistrationPassword`',
+      ),
+    );
   }
 
   /** Returns a valid access token, fetching one if none is cached or it is about to expire. */
-  async getAccessToken(options?: { forceRefresh?: boolean }): Promise<AccessToken> {
-    if (!options?.forceRefresh && this.cached && Date.now() < this.cached.refreshAt) {
-      return this.cached.token;
-    }
-    if (!this.inflight) {
-      // Shared by concurrent callers, so it deliberately ignores any one caller's AbortSignal.
-      this.inflight = this.fetchToken().finally(() => {
-        this.inflight = undefined;
-      });
-    }
-    return (await this.inflight).token;
+  getAccessToken(options?: { forceRefresh?: boolean }): Promise<AccessToken> {
+    return this.tokens.get(options);
   }
 
-  private async fetchToken(): Promise<CachedToken> {
-    const token = (await this.send(
+  /** The same for the pre-registration token (`GET /api/pre_registration/access-token`). */
+  getPreRegistrationAccessToken(options?: { forceRefresh?: boolean }): Promise<AccessToken> {
+    return this.preRegistrationTokens.get(options);
+  }
+
+  private async fetchToken(
+    tokenPath: string,
+    username: string | undefined,
+    password: string | undefined,
+    names: string,
+  ): Promise<AccessToken> {
+    if (!username || !password) {
+      throw new HlthstackBaseError(`${names} are required for this call`);
+    }
+    return (await this.send(
       {
         method: 'GET',
-        path: '/api/get-access-token',
-        headers: { Authorization: `Basic ${base64(`${this.username}:${this.password}`)}` },
+        path: tokenPath,
+        headers: { Authorization: `Basic ${base64(`${username}:${password}`)}` },
       },
       {},
     )) as AccessToken;
-    const expiresAt = Date.parse(token.expires_at);
-    const expiry = Number.isFinite(expiresAt) ? expiresAt : Date.now() + DEFAULT_TOKEN_LIFETIME_MS;
-    const cached = { token, refreshAt: expiry - TOKEN_REFRESH_MARGIN_MS };
-    this.cached = cached;
-    return cached;
   }
 
   /** Authenticated API call. Refreshes the token and retries once on a 401. */
   async request<T>(req: ApiRequest, options: RequestOptions = {}): Promise<T> {
     const headers = { ...this.entityHeaders(options), ...req.headers, ...options.headers };
-    let token = (await this.getAccessToken()).access_token;
+    return this.withToken(
+      this.tokens,
+      (token) => ({ ...headers, Authorization: `Bearer ${token}` }),
+      req,
+      options,
+    );
+  }
+
+  /**
+   * Pre-registration call: sends the pre-registration token as `X-EKINCARE-KEY` (no entity
+   * headers). Refreshes the token and retries once on a 401.
+   */
+  async preRegistrationRequest<T>(req: ApiRequest, options: RequestOptions = {}): Promise<T> {
+    const headers = { ...req.headers, ...options.headers };
+    return this.withToken(
+      this.preRegistrationTokens,
+      (token) => ({ ...headers, 'X-EKINCARE-KEY': token }),
+      req,
+      options,
+    );
+  }
+
+  private async withToken<T>(
+    tokens: TokenCache,
+    authHeaders: (token: string) => Record<string, string>,
+    req: ApiRequest,
+    options: RequestOptions,
+  ): Promise<T> {
+    let token = (await tokens.get()).access_token;
     try {
-      return (await this.send(
-        { ...req, headers: { ...headers, Authorization: `Bearer ${token}` } },
-        options,
-      )) as T;
+      return (await this.send({ ...req, headers: authHeaders(token) }, options)) as T;
     } catch (error) {
       if (!(error instanceof HlthstackError) || error.status !== 401) throw error;
-      if (this.cached?.token.access_token === token) this.cached = undefined;
-      token = (await this.getAccessToken()).access_token;
-      return (await this.send(
-        { ...req, headers: { ...headers, Authorization: `Bearer ${token}` } },
-        options,
-      )) as T;
+      tokens.invalidate(token);
+      token = (await tokens.get()).access_token;
+      return (await this.send({ ...req, headers: authHeaders(token) }, options)) as T;
     }
   }
 

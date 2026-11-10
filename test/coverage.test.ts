@@ -44,6 +44,11 @@ const METHODS: Record<string, string> = {
   confirmOrder: 'pharmacy.confirmOrder',
   getCustomerWallet: 'wallet.getCustomerWallet',
   listCustomerPlans: 'wallet.listCustomerPlans',
+  getPreRegistrationAccessToken: 'preRegistration.getAccessToken',
+  createPreRegistrations: 'preRegistration.create',
+  updatePreRegistrations: 'preRegistration.update',
+  deactivatePreRegistrations: 'preRegistration.deactivate',
+  getPreRegistrationStatus: 'preRegistration.getStatus',
   simulateAppointmentStatus: 'testing.simulateAppointmentStatus',
   simulateConsultationStatus: 'testing.simulateConsultationStatus',
   simulateOrderStatus: 'testing.simulateOrderStatus',
@@ -55,7 +60,7 @@ describe('API coverage', () => {
   const operationIds = [...pathsPart!.matchAll(/operationId: (\w+)/g)].map((m) => m[1]);
 
   it('has one client method per spec operation', () => {
-    expect(operationIds).toHaveLength(42);
+    expect(operationIds).toHaveLength(47);
     expect(Object.keys(METHODS).sort()).toEqual([...operationIds].sort());
   });
 

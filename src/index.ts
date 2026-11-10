@@ -10,6 +10,7 @@ export {
 export { Appointments } from './resources/appointments.js';
 export { Consultations } from './resources/consultations.js';
 export { Pharmacy, type DigitizePrescriptionOptions } from './resources/pharmacy.js';
+export { PreRegistration } from './resources/preRegistration.js';
 export { Testing } from './resources/testing.js';
 export { Wallet } from './resources/wallet.js';
 export type { FileInput } from './uploads.js';

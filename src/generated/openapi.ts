@@ -1281,6 +1281,157 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/pre_registration/access-token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a pre-registration access token
+         * @description Exchanges your **pre-registration** credentials (HTTP Basic: the account email and
+         *     password hlthstack issued for pre-registration, not your booking API credentials) for
+         *     a token. Send it as the `X-EKINCARE-KEY` header on the other pre-registration calls.
+         *
+         *     The token is valid for 1 hour. `expires_at` is a UTC timestamp in the form
+         *     `2026-01-15 07:16:21 UTC` (not ISO 8601). Every call issues a new token; there is no
+         *     refresh token.
+         */
+        get: operations["getPreRegistrationAccessToken"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/corporate/pre_registrations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Pre-register members and dependants
+         * @description Queues members (`employees`) and their dependants for registration and returns a
+         *     `request_id`. Processing is asynchronous: poll `getPreRegistrationStatus` for each
+         *     row's outcome. Employees are processed before dependants, so a dependant can refer to
+         *     an employee sent in the same request.
+         *
+         *     - Send `employees`, `dependants` or both; at most **250 rows in total** per request.
+         *     - **Every key marked required must be present in every row**, even when its value is
+         *       empty (`""` or `null`). A row missing a required key is dropped silently: it is not
+         *       registered and is not reported in the status. If no row is left, the call fails
+         *       with `400`.
+         *     - Each employee needs `company_id` (a company your credentials can act on) and an
+         *       `email` or an `employee_code`.
+         *     - Each dependant is linked to its employee by `guardian_email`, or by `company_id`
+         *       plus `guardian_employee_code` when the employee has no email.
+         */
+        post: operations["createPreRegistrations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/corporate/pre_registrations/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update registered members and dependants
+         * @description Queues updates to registered members and dependants and returns a `request_id`; poll
+         *     `getPreRegistrationStatus` for each row's outcome. Send only the identifier and the
+         *     fields to change. At most 250 rows in total per request.
+         *
+         *     - An employee is found by `email`, or by `company_id` plus `employee_code` when no
+         *       email is sent. The email itself can't be changed here.
+         *     - A dependant is found by `api_customer_id`, then `dependent_code`, under the employee
+         *       given by `guardian_email` (or `company_id` plus `guardian_employee_code`); otherwise
+         *       by `mobile_number`, which must match exactly one dependant. At least one of
+         *       `api_customer_id`, `dependent_code` or `mobile_number` is required.
+         *     - `mobile_number` in an update is stored as the member's alternate mobile number.
+         *     - `voluntary_plan_ids` takes the same entries as `createPreRegistrations`. On a
+         *       dependant it is refused (the rest of the row is still applied).
+         */
+        post: operations["updatePreRegistrations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/corporate/pre_registrations/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deactivate members or dependants
+         * @description Queues deactivations and returns a `request_id`; poll `getPreRegistrationStatus` for
+         *     each one's outcome. `employees` lists employee emails, `dependants` lists dependant
+         *     mobile numbers. At most 250 entries in total per request.
+         *
+         *     Deactivating an employee also deactivates all their dependants and cancels their
+         *     ongoing appointments. Only members of companies your credentials can act on are
+         *     deactivated.
+         */
+        post: operations["deactivatePreRegistrations"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/corporate/pre_registrations/{request_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The `request_id` returned by a create, update or deactivate call.
+                 * @example 3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01
+                 */
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        /**
+         * Get the outcome of a pre-registration request
+         * @description The request's processing `status` and its rows, split into `success_records` and
+         *     `failure_records`. Poll until `status` is `completed`; records are added while the
+         *     request is `inprogress`.
+         *
+         *     - Create and update requests: each success record is the member as stored (dependants
+         *       included, with `guardian_email` and `relation`); employees carry `customer_plans`.
+         *       Each failure record echoes the row with its `errors`.
+         *     - Deactivate requests: success records carry `status` (`Active`/`Inactive`);
+         *       failure records are `{"errors": ["..."]}` only.
+         */
+        get: operations["getPreRegistrationStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export interface webhooks {
     appointmentStatusUpdate: {
@@ -2542,6 +2693,236 @@ export interface components {
                 }[];
             };
         };
+        PreRegistrationAccessToken: {
+            access_token: string;
+            /**
+             * @description UTC, formatted `YYYY-MM-DD HH:MM:SS UTC` (not ISO 8601).
+             * @example 2026-01-15 07:16:21 UTC
+             */
+            expires_at: string;
+        };
+        PreRegistrationAccepted: {
+            /** @example Request has been accepted */
+            message: string;
+            /** Format: uuid */
+            request_id: string;
+        };
+        /**
+         * @description A plan id shared at onboarding, or an object naming one subscription. Without
+         *     `additional: true`, a subscription the member already holds on the plan is reused.
+         */
+        VoluntaryPlanEntry: string | {
+            plan_id: string;
+            /** @description `DD-MM-YYYY` or `YYYY-MM-DD`. Defaults to today; must not be after the plan's end date. */
+            start_date?: string;
+            /** @description Add another subscription to the plan, up to the plan's subscription limit. Counts only with `subscription_id`. */
+            additional?: boolean;
+            /** @description Your own order id. Resending it returns the subscription it created, so retries never duplicate. */
+            subscription_id?: string;
+        };
+        /**
+         * @description One member (employee). Every key in `required` must be present, even with an empty
+         *     value; a row missing one is dropped without being reported. Identify the employee by
+         *     `email`, or by `employee_code` within `company_id`.
+         */
+        PreRegistrationEmployee: {
+            /** @description The company (or entity) the member belongs to, shared at onboarding. Must be one your credentials can act on. */
+            company_id: string | number;
+            /** @description Required (non-empty) when there is no `email`. Unique within the company. */
+            employee_code: string | null;
+            /** @description Required when `employee_code` is empty. Unique. */
+            email?: string | null;
+            first_name: string;
+            last_name: string | null;
+            /** @description `DD-MM-YYYY` or `DD/MM/YYYY`. */
+            date_of_birth: string | null;
+            /** @description `Male`, `Female` or `Non-binary` (any case). */
+            gender: string | null;
+            /** @description 10-digit mobile number without the country code. */
+            mobile_number: string | null;
+            /** @description `Yes` or `No` (any case). */
+            vip: string | null;
+            entity_name: string | null;
+            employee_office_location: string | null;
+            department: string | null;
+            grade: string | null;
+            /** @description `DD-MM-YYYY` or `DD/MM/YYYY`. */
+            date_of_joining: string | null;
+            /** @description Your id for the member. */
+            api_customer_id?: string | null;
+            voluntary_plan_ids?: components["schemas"]["VoluntaryPlanEntry"][];
+        };
+        /**
+         * @description One dependant. Every key in `required` must be present, even with an empty value; a
+         *     row missing one is dropped without being reported. Link it to its employee with
+         *     `guardian_email`, or with `company_id` plus `guardian_employee_code`.
+         *     `voluntary_plan_ids` is not accepted on dependants: the dependant is registered but
+         *     the row is reported as failed.
+         */
+        PreRegistrationDependant: {
+            /** @description The employee's email. */
+            guardian_email?: string | null;
+            /** @description The employee's company. Used with `guardian_employee_code`. */
+            company_id?: string | number | null;
+            /** @description The employee's `employee_code`. Used with `company_id` when the employee has no email. */
+            guardian_employee_code?: string | null;
+            /** @description Your id for the dependant. Unique per employee, case-insensitive. */
+            dependent_code?: string | null;
+            email?: string | null;
+            first_name: string;
+            last_name: string | null;
+            /** @description `DD-MM-YYYY` or `DD/MM/YYYY`. */
+            date_of_birth: string | null;
+            /** @description `Male` or `Female` (any case). */
+            gender: string | null;
+            /** @description 10-digit mobile number without the country code. */
+            mobile_number: string | null;
+            /** @description One of `Father`, `Mother`, `Brother`, `Sister`, `Husband`, `Wife`, `Son`, `Daughter`, `Father in law`, `Mother in law`. */
+            relation: string | null;
+            /** @description Your id for the dependant. */
+            api_customer_id?: string | null;
+            /** @description `Yes` or `No`. Defaults to `Yes`. */
+            authorised_dependent?: string | null;
+        };
+        /**
+         * @description Identify the employee by `email`, or by `company_id` plus `employee_code`; send only
+         *     the fields to change. `email` can't be changed. `mobile_number` is stored as the
+         *     alternate mobile number.
+         */
+        PreRegistrationEmployeeUpdate: {
+            email?: string;
+            company_id?: string | number;
+            employee_code?: string | null;
+            first_name?: string;
+            last_name?: string | null;
+            date_of_birth?: string | null;
+            gender?: string | null;
+            mobile_number?: string | null;
+            vip?: string | null;
+            entity_name?: string | null;
+            employee_office_location?: string | null;
+            department?: string | null;
+            /** @description Must be one of the company's grades. */
+            grade?: string | null;
+            date_of_joining?: string | null;
+            api_customer_id?: string | null;
+            voluntary_plan_ids?: components["schemas"]["VoluntaryPlanEntry"][];
+        };
+        /**
+         * @description Identify the dependant by `api_customer_id` or `dependent_code` (with the employee's
+         *     `guardian_email`, or `company_id` plus `guardian_employee_code`), or by
+         *     `mobile_number`. Send only the fields to change. Sending `dependent_code` on a
+         *     dependant found another way sets its code; an empty one never clears it.
+         */
+        PreRegistrationDependantUpdate: {
+            guardian_email?: string;
+            company_id?: string | number;
+            guardian_employee_code?: string;
+            api_customer_id?: string;
+            dependent_code?: string;
+            mobile_number?: string;
+            first_name?: string;
+            last_name?: string | null;
+            email?: string | null;
+            date_of_birth?: string | null;
+            gender?: string | null;
+            relation?: string;
+            /** @description `Yes` or `No`. */
+            authorised_dependent?: string;
+        };
+        /** @description At most 250 rows in `employees` and `dependants` together. */
+        CreatePreRegistrationsRequest: {
+            employees?: components["schemas"]["PreRegistrationEmployee"][];
+            dependants?: components["schemas"]["PreRegistrationDependant"][];
+        };
+        /** @description At most 250 rows in `employees` and `dependants` together. */
+        UpdatePreRegistrationsRequest: {
+            employees?: components["schemas"]["PreRegistrationEmployeeUpdate"][];
+            dependants?: components["schemas"]["PreRegistrationDependantUpdate"][];
+        };
+        /** @description At most 250 entries in `employees` and `dependants` together. */
+        DeactivatePreRegistrationsRequest: {
+            /** @description Emails of the employees to deactivate. */
+            employees?: string[];
+            /** @description Mobile numbers of the dependants to deactivate. */
+            dependants?: string[];
+        };
+        PreRegistrationSuccessRecord: {
+            /** @description The employee code, or a dependant's `dependent_code`. */
+            employee_code?: string | null;
+            first_name?: string | null;
+            last_name?: string | null;
+            email?: string | null;
+            /** Format: date */
+            date_of_birth?: string | null;
+            gender?: string | null;
+            mobile_number?: string | null;
+            /** @enum {string} */
+            vip?: "Yes" | "No";
+            entity_name?: string | null;
+            employee_office_location?: string | null;
+            department?: string | null;
+            /** @description hlthstack's token for the member. */
+            customer_token?: string | null;
+            errors?: string[];
+            grade?: string | null;
+            /** @description Dependants only. */
+            guardian_email?: string | null;
+            /** @description Dependants only. */
+            relation?: string | null;
+            /** @description Create and update requests only. The member's active, upcoming and grace-period subscriptions. */
+            customer_plans?: {
+                customer_plan_id?: number;
+                subscription_id?: string | null;
+                plan_id?: string | null;
+                plan_name?: string | null;
+                /** Format: date */
+                start_date?: string;
+                /** Format: date */
+                end_date?: string;
+                /** Format: date */
+                grace_end_date?: string;
+                /** @enum {string} */
+                status?: "active" | "upcoming" | "grace";
+            }[];
+            /**
+             * @description Deactivate requests only.
+             * @enum {string}
+             */
+            status?: "Active" | "Inactive";
+        };
+        /**
+         * @description Create and update requests echo the row's fields with `errors`. Deactivate requests
+         *     return `errors` only.
+         */
+        PreRegistrationFailureRecord: {
+            employee_code?: string | null;
+            first_name?: string | null;
+            last_name?: string | null;
+            email?: string | null;
+            date_of_birth?: string | null;
+            gender?: string | null;
+            mobile_number?: string | null;
+            vip?: string | null;
+            entity_name?: string | null;
+            employee_office_location?: string | null;
+            department?: string | null;
+            guardian_email?: string | null;
+            errors: string[];
+        };
+        PreRegistrationStatus: {
+            /** Format: uuid */
+            request_id: string;
+            /**
+             * @description Rows are processed while `inprogress`; results are final at `completed`.
+             * @enum {string}
+             */
+            status: "initialized" | "scheduled" | "inprogress" | "completed" | "failed";
+            success_records: components["schemas"]["PreRegistrationSuccessRecord"][];
+            failure_records: components["schemas"]["PreRegistrationFailureRecord"][];
+            /** Format: date-time */
+            created_at: string;
+        };
     };
     responses: {
         /** @description Missing, invalid or expired access token. (Bad entity headers return 400 instead.) */
@@ -2816,6 +3197,65 @@ export interface components {
                  *     }
                  */
                 "application/json": components["schemas"]["ErrorMessages"] | components["schemas"]["BookingFailure"];
+            };
+        };
+        /** @description Accepted for processing. Poll `getPreRegistrationStatus` with `request_id`. */
+        PreRegistrationAccepted: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "message": "Request has been accepted",
+                 *       "request_id": "3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01"
+                 *     }
+                 */
+                "application/json": components["schemas"]["PreRegistrationAccepted"];
+            };
+        };
+        /**
+         * @description `missing param or invalid params`: `employees`/`dependants` is not a non-empty array,
+         *     or no row has all the required keys. `Request is too large`: more than 250 rows in
+         *     total.
+         */
+        PreRegistrationInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["MessageError"];
+            };
+        };
+        /**
+         * @description Missing, invalid or expired `X-EKINCARE-KEY` token, or the company's contract has
+         *     ended. The body is empty.
+         */
+        PreRegistrationUnauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
+        /** @description The account's role may not use the pre-registration API. The body is empty. */
+        PreRegistrationForbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content?: never;
+        };
+        /** @description The request could not be queued. */
+        PreRegistrationFailed: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                /**
+                 * @example {
+                 *       "message": "something went wrong"
+                 *     }
+                 */
+                "application/json": components["schemas"]["MessageError"];
             };
         };
     };
@@ -5927,6 +6367,284 @@ export interface operations {
                 };
             };
             422: components["responses"]["CustomerIdRequired"];
+        };
+    };
+    getPreRegistrationAccessToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Token issued. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "access_token": "YOUR_PRE_REGISTRATION_TOKEN",
+                     *       "expires_at": "2026-01-15 07:16:21 UTC"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PreRegistrationAccessToken"];
+                };
+            };
+            /** @description Missing or wrong credentials. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "message": "Wrong credentials"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MessageError"];
+                };
+            };
+        };
+    };
+    createPreRegistrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "employees": [
+                 *         {
+                 *           "employee_code": "EMP1001",
+                 *           "company_id": "1001",
+                 *           "first_name": "Jane",
+                 *           "last_name": "Doe",
+                 *           "email": "jane.doe@example.com",
+                 *           "date_of_birth": "24-08-1990",
+                 *           "gender": "Female",
+                 *           "employee_office_location": "Hyderabad",
+                 *           "department": "Engineering",
+                 *           "mobile_number": "9999999999",
+                 *           "vip": "No",
+                 *           "entity_name": "",
+                 *           "grade": "B",
+                 *           "date_of_joining": "01-01-2026",
+                 *           "voluntary_plan_ids": [
+                 *             "EXAMPLE_TOPUP"
+                 *           ]
+                 *         }
+                 *       ],
+                 *       "dependants": [
+                 *         {
+                 *           "guardian_email": "jane.doe@example.com",
+                 *           "dependent_code": "DEP-001",
+                 *           "first_name": "John",
+                 *           "last_name": "Doe",
+                 *           "date_of_birth": "10-02-1960",
+                 *           "gender": "Male",
+                 *           "mobile_number": "9999999998",
+                 *           "relation": "Father"
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["CreatePreRegistrationsRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["PreRegistrationAccepted"];
+            400: components["responses"]["PreRegistrationInvalid"];
+            401: components["responses"]["PreRegistrationUnauthorized"];
+            403: components["responses"]["PreRegistrationForbidden"];
+            422: components["responses"]["PreRegistrationFailed"];
+        };
+    };
+    updatePreRegistrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "employees": [
+                 *         {
+                 *           "email": "jane.doe@example.com",
+                 *           "department": "Finance",
+                 *           "grade": "C"
+                 *         }
+                 *       ],
+                 *       "dependants": [
+                 *         {
+                 *           "guardian_email": "jane.doe@example.com",
+                 *           "dependent_code": "DEP-001",
+                 *           "last_name": "Doe-Smith"
+                 *         }
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["UpdatePreRegistrationsRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["PreRegistrationAccepted"];
+            400: components["responses"]["PreRegistrationInvalid"];
+            401: components["responses"]["PreRegistrationUnauthorized"];
+            403: components["responses"]["PreRegistrationForbidden"];
+            422: components["responses"]["PreRegistrationFailed"];
+        };
+    };
+    deactivatePreRegistrations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "employees": [
+                 *         "jane.doe@example.com"
+                 *       ]
+                 *     }
+                 */
+                "application/json": components["schemas"]["DeactivatePreRegistrationsRequest"];
+            };
+        };
+        responses: {
+            200: components["responses"]["PreRegistrationAccepted"];
+            400: components["responses"]["PreRegistrationInvalid"];
+            401: components["responses"]["PreRegistrationUnauthorized"];
+            403: components["responses"]["PreRegistrationForbidden"];
+            422: components["responses"]["PreRegistrationFailed"];
+        };
+    };
+    getPreRegistrationStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /**
+                 * @description The `request_id` returned by a create, update or deactivate call.
+                 * @example 3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01
+                 */
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The request and its results so far. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "request_id": "3f2b8c1e-0d4a-4c5e-9b7a-2e6f1d8c9a01",
+                     *       "status": "completed",
+                     *       "success_records": [
+                     *         {
+                     *           "employee_code": "EMP1001",
+                     *           "first_name": "Jane",
+                     *           "last_name": "Doe",
+                     *           "email": "jane.doe@example.com",
+                     *           "date_of_birth": "1990-08-24",
+                     *           "gender": "Female",
+                     *           "mobile_number": "9999999999",
+                     *           "vip": "No",
+                     *           "entity_name": null,
+                     *           "employee_office_location": "Hyderabad",
+                     *           "department": "Engineering",
+                     *           "customer_token": "EXAMPLE_CUSTOMER_TOKEN",
+                     *           "errors": [],
+                     *           "grade": "B",
+                     *           "guardian_email": null,
+                     *           "relation": null,
+                     *           "customer_plans": [
+                     *             {
+                     *               "customer_plan_id": 101,
+                     *               "subscription_id": null,
+                     *               "plan_id": "EXAMPLE_TOPUP",
+                     *               "plan_name": "Top-up",
+                     *               "start_date": "2026-01-15",
+                     *               "end_date": "2026-12-31",
+                     *               "grace_end_date": "2027-01-31",
+                     *               "status": "active"
+                     *             }
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "failure_records": [
+                     *         {
+                     *           "employee_code": "EMP1002",
+                     *           "first_name": "Sam",
+                     *           "last_name": "Roe",
+                     *           "email": "sam.roe@example",
+                     *           "date_of_birth": "31-02-1990",
+                     *           "gender": "Male",
+                     *           "mobile_number": "12345",
+                     *           "vip": "No",
+                     *           "entity_name": "",
+                     *           "employee_office_location": "Hyderabad",
+                     *           "department": "Engineering",
+                     *           "guardian_email": null,
+                     *           "errors": [
+                     *             "Email is invalid",
+                     *             "Date of birth is invalid - valid format is DD-MM-YYYY or DD/MM/YYYY",
+                     *             "Mobile number is not in the correct format for India"
+                     *           ]
+                     *         }
+                     *       ],
+                     *       "created_at": "2026-01-15T06:16:21Z"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["PreRegistrationStatus"];
+                };
+            };
+            401: components["responses"]["PreRegistrationUnauthorized"];
+            403: components["responses"]["PreRegistrationForbidden"];
+            /** @description No request with that id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "message": "Request couldn't find with the id provided"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MessageError"];
+                };
+            };
+            /** @description The status could not be read. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "message": "Something went wrong"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["MessageError"];
+                };
+            };
         };
     };
     onAppointmentStatusUpdate: {

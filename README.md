@@ -1,8 +1,8 @@
 # hlthstack for JavaScript and TypeScript
 
 Official client for the [hlthstack](https://www.hlthstack.io/) partner REST API: health
-checkups and lab tests, in-clinic and online consultations, ePharmacy orders and benefit
-wallets.
+checkups and lab tests, in-clinic and online consultations, ePharmacy orders, benefit
+wallets and member pre-registration.
 
 - Written in TypeScript, shipped as ESM and CommonJS with type declarations.
 - Zero runtime dependencies. Works on Node.js 18+ and any runtime with `fetch`.
@@ -89,8 +89,10 @@ console.log(details.appointments.map((a) => [a.appointment_id, a.status]));
 
 ```ts
 new Hlthstack({
-  username: 'example-user',        // required, issued by hlthstack
-  password: 'example-password',    // required
+  username: 'example-user',        // issued by hlthstack; required unless you only use pre-registration
+  password: 'example-password',
+  preRegistrationUsername: undefined, // pre-registration login (an email), only for client.preRegistration
+  preRegistrationPassword: undefined,
   environment: 'production',       // 'production' | 'staging'
   baseUrl: undefined,              // optional override, e.g. a proxy
   entityId: undefined,             // multi-entity partners: entity to act for
@@ -120,6 +122,12 @@ You never call the token endpoint yourself. The client:
 - on a `401`, fetches a new token and retries the call once.
 
 `client.auth.getAccessToken({ forceRefresh })` is available if you need the token itself.
+
+`client.preRegistration.*` uses separate credentials (`preRegistrationUsername` /
+`preRegistrationPassword`) and its own token: the client requests it from
+`GET /api/pre_registration/access-token`, sends it as `X-EKINCARE-KEY`, and caches, shares
+and refreshes it the same way. `client.preRegistration.getAccessToken({ forceRefresh })`
+returns it.
 
 ### Multi-entity partners
 
@@ -192,6 +200,11 @@ Method names follow the spec's `operationId`s, grouped by area.
 | | `confirmOrder(orderId, params)` | `POST /api/epharmacy/orders/{order_id}/confirm` |
 | wallet | `getCustomerWallet(companySlug, params)` | `GET /api/{company_slug}/customers/wallet` |
 | | `listCustomerPlans(companySlug, params)` | `GET /api/{company_slug}/customers/plans` |
+| preRegistration | `getAccessToken` (getPreRegistrationAccessToken) | `GET /api/pre_registration/access-token` |
+| | `create` (createPreRegistrations) | `POST /v1/corporate/pre_registrations` |
+| | `update` (updatePreRegistrations) | `POST /v1/corporate/pre_registrations/update` |
+| | `deactivate` (deactivatePreRegistrations) | `POST /v1/corporate/pre_registrations/deactivate` |
+| | `getStatus(requestId)` (getPreRegistrationStatus) | `GET /v1/corporate/pre_registrations/{request_id}/status` |
 | testing (staging only) | `simulateAppointmentStatus(appointmentId, params)` | `POST /api/appointments/{appointment_id}/update_status` |
 | | `simulateConsultationStatus(appointmentId, params)` | `PATCH /api/consultations/{appointment_id}/update_status` |
 | | `simulateOrderStatus(orderId, params)` | `PATCH /api/epharmacy/orders/{order_id}/update_status` |
@@ -241,6 +254,44 @@ import { writeFile } from 'node:fs/promises';
 const pdf = await client.appointments.getVoucher('APT1A2B3C4D5');
 await writeFile('voucher.pdf', Buffer.from(pdf));
 ```
+
+### Pre-registration
+
+Register, update and deactivate members and dependants in bulk (at most 250 rows per call).
+Each write returns a `request_id`; poll `getStatus` until `status` is `completed`. Entity
+options (`entityId`, `secretKey`) don't apply here: each row names its `company_id`.
+
+```ts
+const client = new Hlthstack({
+  preRegistrationUsername: process.env.HLTHSTACK_PREREG_USERNAME!,
+  preRegistrationPassword: process.env.HLTHSTACK_PREREG_PASSWORD!,
+  environment: 'staging',
+});
+
+const { request_id } = await client.preRegistration.create({
+  employees: [
+    {
+      employee_code: 'EMP1001', company_id: '1001', first_name: 'Jane', last_name: 'Doe',
+      email: 'jane.doe@example.com', date_of_birth: '24-08-1990', gender: 'Female',
+      mobile_number: '9999999999', vip: 'No', entity_name: '', employee_office_location: 'Hyderabad',
+      department: 'Engineering', grade: 'B', date_of_joining: '01-01-2026',
+    },
+  ],
+});
+
+let result = await client.preRegistration.getStatus(request_id);
+while (result.status !== 'completed') {
+  await new Promise((r) => setTimeout(r, 5_000));
+  result = await client.preRegistration.getStatus(request_id);
+}
+console.log(result.success_records.length, result.failure_records.map((r) => r.errors));
+```
+
+Every key the spec marks required must be present in each `create` row, even when empty:
+the API silently drops rows that miss one, and the types enforce this. `update` takes only
+the identifier and the fields to change; `deactivate` takes employee emails and dependant
+mobile numbers. See the
+[pre-registration guide](https://github.com/hlthstack/integration-guide/blob/main/docs/pre-registration.md).
 
 ### Staging simulators
 

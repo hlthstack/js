@@ -158,6 +158,21 @@ export type WalletResponse = Schemas['WalletResponse'];
 export type ListCustomerPlansParams = QueryOf<'listCustomerPlans'>;
 export type CustomerPlansResponse = Schemas['CustomerPlansResponse'];
 
+// ------------------------------------------------------------------ pre-registration
+export type PreRegistrationAccessToken = Schemas['PreRegistrationAccessToken'];
+export type PreRegistrationEmployee = Schemas['PreRegistrationEmployee'];
+export type PreRegistrationDependant = Schemas['PreRegistrationDependant'];
+export type PreRegistrationEmployeeUpdate = Schemas['PreRegistrationEmployeeUpdate'];
+export type PreRegistrationDependantUpdate = Schemas['PreRegistrationDependantUpdate'];
+export type VoluntaryPlanEntry = Schemas['VoluntaryPlanEntry'];
+export type CreatePreRegistrationsParams = Schemas['CreatePreRegistrationsRequest'];
+export type UpdatePreRegistrationsParams = Schemas['UpdatePreRegistrationsRequest'];
+export type DeactivatePreRegistrationsParams = Schemas['DeactivatePreRegistrationsRequest'];
+export type PreRegistrationAccepted = Schemas['PreRegistrationAccepted'];
+export type PreRegistrationStatus = Schemas['PreRegistrationStatus'];
+export type PreRegistrationSuccessRecord = Schemas['PreRegistrationSuccessRecord'];
+export type PreRegistrationFailureRecord = Schemas['PreRegistrationFailureRecord'];
+
 // ------------------------------------------------------------------ testing (staging only)
 export type SimulateAppointmentStatusParams = JsonBodyOf<'simulateAppointmentStatus'>;
 export type SimulateConsultationStatusParams = JsonBodyOf<'simulateConsultationStatus'>;

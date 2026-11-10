@@ -1,0 +1,3871 @@
+openapi: 3.1.0
+info:
+  title: hlthstack API
+  version: 1.0.0
+  summary: Partner REST API for health checkups, lab tests, doctor consultations, ePharmacy and benefit wallets.
+  description: |
+    The hlthstack API lets partners book and manage health benefits for their members:
+    health checkups and lab tests, in-clinic and online specialist consultations, ePharmacy
+    orders, and benefit wallet balances. Status changes are pushed to you through webhooks
+    (see the `webhooks` section).
+
+    **Authentication.** Call `getAccessToken` with HTTP Basic credentials issued by hlthstack.
+    It returns a bearer token valid for 1 hour. Send it as `Authorization: Bearer <token>` on
+    every other call. Multi-entity partners also send `API-ENTITY-ID` and `API-SECRET-KEY`.
+
+    **Conventions.**
+    - Request and response bodies are JSON unless stated otherwise (vouchers are PDF, some
+      uploads are multipart).
+    - Date-times are ISO 8601. Send `appointment_date_time` in UTC (`2026-01-15T03:30:00Z`).
+    - `plan_id`, wherever accepted, is the plan identifier hlthstack shares at onboarding
+      (a string). It is optional; when omitted, the entity's base plan is used.
+    - Any unhandled error is returned as `422 {"errors":{"messages":["..."]}}`.
+
+    Guides: https://github.com/hlthstack/integration-guide/tree/main/docs
+  contact:
+    name: hlthstack
+    url: https://www.hlthstack.io/
+servers:
+  - url: https://api.hlthstack.io
+    description: Production
+  - url: https://staging-api.hlthstack.io
+    description: Staging (sandbox for integration testing; staging-only endpoints are available here)
+security:
+  - bearerAuth: []
+tags:
+  - name: Authentication
+    description: Obtain a bearer access token.
+  - name: Health Checkups
+    description: Providers, slots and appointments for health checkups, lab tests, dental, vision and vaccinations.
+  - name: Consultations
+    description: In-clinic consultations and online specialist consultations (scheduled and priority).
+  - name: ePharmacy
+    description: Medicine search, prescription digitization, cart, pricing and orders.
+  - name: Wallet
+    description: Member benefit wallets and plan subscriptions.
+  - name: Testing
+    description: Staging-only endpoints that move a booking or order through its lifecycle and fire the real webhooks.
+
+paths:
+  # ---------------------------------------------------------------- Authentication
+  /api/get-access-token:
+    get:
+      operationId: getAccessToken
+      tags: [Authentication]
+      summary: Get an access token
+      description: |
+        Exchanges the username and password issued by hlthstack (HTTP Basic) for a bearer
+        token. The token expires 1 hour after issue (`expires_at`). Request a new one before
+        it expires; there is no refresh token.
+      security:
+        - basicAuth: []
+      responses:
+        '200':
+          description: Token issued.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessToken'
+              example:
+                access_token: YOUR_ACCESS_TOKEN
+                expires_at: '2026-01-15T07:16:21Z'
+        '401':
+          description: Wrong username or password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+              example:
+                message: Wrong credentials
+
+  # ---------------------------------------------------------------- Health checkups
+  /api/providers:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: listProviders
+      tags: [Health Checkups]
+      summary: List providers
+      description: |
+        Lists providers (diagnostic centres, clinics, doctors) near a location that can
+        serve the given packages, ordered by distance. Use `listSlots` for availability:
+        the `provider_slots` embedded here is deprecated.
+
+        Either `pincode` or both `latitude` and `longitude` are required (if only coordinates
+        are sent the pincode is derived from them). `sort_by` and `gender` are supported only
+        for `service_name=inclinic_consultation`.
+      parameters:
+        - $ref: '#/components/parameters/ServiceName'
+        - $ref: '#/components/parameters/PackageIdsQuery'
+        - $ref: '#/components/parameters/PincodeQuery'
+        - $ref: '#/components/parameters/LatitudeQuery'
+        - $ref: '#/components/parameters/LongitudeQuery'
+        - name: radius
+          in: query
+          description: Search radius in km for in-clinic providers (1-100). Default 100.
+          schema: {type: number, minimum: 1, maximum: 100, default: 100}
+        - name: auto_allocate_provider
+          in: query
+          description: |
+            Home-collection packages only. Let hlthstack allocate the best provider by
+            availability. The appointment is cancelled if no provider is available at the
+            location, and the slot may change if no provider is free at that time.
+          schema: {type: boolean}
+        - $ref: '#/components/parameters/PlanIdQuery'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortAsc'
+        - $ref: '#/components/parameters/DoctorGender'
+        - $ref: '#/components/parameters/VisitedBeforeCustomer'
+      responses:
+        '200':
+          description: Providers found (the list may be empty).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProvidersResponse'
+              example:
+                providers:
+                  - provider_id: 1001
+                    provider_name: Example Diagnostics
+                    locality: Madhapur
+                    city: Hyderabad
+                    state: Telangana
+                    pincode: '500081'
+                    timezone: Asia/Kolkata
+                    timezone_info: Indian Standard Time (IST) (GMT+5:30)
+                    home_collection_enabled: true
+                    latitude: 17.44
+                    longitude: 78.38
+                    address: 1 Example Road, Madhapur, Hyderabad, Telangana 500081
+                    serviceable: true
+                    is_center_available: true
+                    estimated_time: 15-20 mins
+                    estimated_distance: 2.2 kms
+                    rating: 4.5
+                    slot_lead_time: 1
+                    provider_slots: null
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ServiceNotEnabled'
+        '404':
+          description: '`sort_by=visited_before` with an unknown `api_customer_id`.'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FieldErrors'}
+              example:
+                errors:
+                  api_customer_id: ['customer not found: CUST1001']
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/providers/{provider_id}/{benefit_type}/slots:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - name: provider_id
+        in: path
+        required: true
+        schema: {type: integer}
+        example: 1001
+      - name: benefit_type
+        in: path
+        required: true
+        description: The service the slots are for. Same values as `service_name`.
+        schema:
+          type: string
+          examples: [ahc, dental, vision, flu_vaccination, covid_vaccination, inclinic_consultation, specialist_consultation]
+    get:
+      operationId: listSlots
+      tags: [Health Checkups, Consultations]
+      summary: List slots for a provider
+      description: |
+        Returns bookable slots for one provider and benefit. Pass `booking_date` for a single
+        day; omit it for several days (`count_days`, default 14). Read `booking_slots`; the
+        top-level `date` and `slots` describe only the first day and are deprecated.
+
+        The first bookable date depends on the provider's `slot_lead_time` and timezone
+        (from `listProviders`); a `booking_date` before it returns 400.
+
+        For `inclinic_consultation` and `specialist_consultation` the provider must be an
+        active doctor whose speciality matches the packages.
+      parameters:
+        - name: package_ids
+          in: query
+          required: true
+          description: Comma-separated package ids.
+          schema: {type: string}
+          example: '1001'
+        - name: booking_date
+          in: query
+          description: Day to fetch (YYYY-MM-DD). Omit for multiple days.
+          schema: {type: string, format: date}
+        - name: count_days
+          in: query
+          description: Number of days to return when `booking_date` is omitted. Default 14.
+          schema: {type: integer, minimum: 1}
+        - name: slot_start_date
+          in: query
+          description: Start the multi-day window no earlier than this date.
+          schema: {type: string, format: date}
+        - $ref: '#/components/parameters/PincodeQuery'
+        - $ref: '#/components/parameters/LatitudeQuery'
+        - $ref: '#/components/parameters/LongitudeQuery'
+        - name: city_name
+          in: query
+          description: City for the pincode. Derived from the pincode when omitted.
+          schema: {type: string}
+        - $ref: '#/components/parameters/PlanIdQuery'
+      responses:
+        '200':
+          description: Slots.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SlotsResponse'}
+              example:
+                date: '2026-01-15'
+                booking_slots:
+                  - date: '2026-01-15'
+                    slots:
+                      - start_time: '08:00:00'
+                        end_time: '09:00:00'
+                        slot: 08 - 09 AM
+                        available: true
+                        display_text: '08:00 AM'
+                        slot_text: '08:00 AM and 09:00 AM'
+                        utc_slot_time: '2026-01-15T02:30:00.000Z'
+                        start_time_in_timezone: '2026-01-15T08:00:00.000+05:30'
+                        end_time_in_timezone: '2026-01-15T09:00:00.000+05:30'
+                        remaining_capacity: 12
+                report_tat: null
+                interval: 3600
+                unavailable_reason: null
+        '400':
+          description: Missing details, invalid booking date, or (consultations) invalid provider/package.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/MessageError'
+                  - $ref: '#/components/schemas/FieldErrors'
+              examples:
+                missing:
+                  value: {message: Required details are missing}
+                tooEarly:
+                  value: {message: "Booking date 2026-01-14 is before the provider's earliest available date 2026-01-15"}
+                provider:
+                  value: {errors: {package_ids: [The selected provider does not match the package specialities]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ServiceNotEnabled'
+        '500':
+          description: The provider's own system could not be reached.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MessageError'}
+              example: {message: Failed to fetch slots from partner}
+
+  /api/appointments:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: createAppointment
+      tags: [Health Checkups]
+      summary: Create a booking
+      description: |
+        Books one appointment per customer at one provider and time. All appointments share
+        a `booking_id`; each customer gets an `appointment_id`.
+
+        The booking customer is the last entry with `booking_customer: true`, else the first.
+        `address` is required for `home_collection`.
+
+        If the member's wallet covers the cost the booking is placed and `status` is
+        `confirmed` (the appointment itself still starts at `new` and is confirmed by the
+        provider). If an amount is due, `status` is `payment_pending` and `payment_link` must
+        be paid by the member.
+
+        To pay from a specific subscription when a customer holds several on a plan, send
+        `customer_plan_id` (hlthstack's id, from `listCustomerPlans`) or `subscription_id`
+        (your own id). `customer_plan_id` wins when both are sent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateAppointmentRequest'}
+            example:
+              appointment_date_time: '2026-01-15T02:30:00Z'
+              appointment_type: home_collection
+              service_name: ahc
+              provider_id: 1001
+              customers:
+                - name: Jane Doe
+                  dob: '1990-08-24'
+                  mobile_number: '9999999999'
+                  api_customer_id: CUST1001
+                  booking_customer: true
+                  gender: female
+                  package_ids: [1001]
+                  api_partner_order_id: ORDER-1001
+              address:
+                address_line_one: 1 Example Road
+                address_line_two: Madhapur
+                city: Hyderabad
+                state: Telangana
+                country: India
+                pincode: '500081'
+                latitude: 17.4437
+                longitude: 78.3860
+      responses:
+        '200':
+          description: Booking created.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreateAppointmentResponse'}
+              example:
+                provider_id: 1001
+                home_collection_enable: true
+                booking_id: EKI0000000001700000000
+                status: confirmed
+                customers:
+                  - customer_id: 5001
+                    name: Jane Doe
+                    api_customer_id: CUST1001
+                    package_ids: [1001]
+                    appointment_id: APT1A2B3C4D5
+                    customer_plan_id: null
+                    subscription_id: null
+        '400':
+          description: Validation error, invalid subscription, or booking failure.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/FieldErrors'
+                  - $ref: '#/components/schemas/BookingFailure'
+              examples:
+                validation:
+                  value:
+                    errors:
+                      appointment_type: [invalid appointment_type]
+                      appointment_date_time: [invalid appointment date/time format]
+                      customer_mobile_number: [is the wrong length (should be 10 characters)]
+                subscription:
+                  value: {errors: {customer_plan_id: [is not active]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Booking error, or a duplicate booking for the same package, provider and slot.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ErrorMessages'
+                  - $ref: '#/components/schemas/BookingFailure'
+              example:
+                errors:
+                  messages: [customer has an ongoing appointment for same package and provider for same slot]
+    get:
+      operationId: getAppointment
+      tags: [Health Checkups]
+      summary: Get booking or appointment details
+      description: |
+        Pass only `booking_id` to get every appointment in the booking; add `appointment_id`
+        to get one appointment. Each appointment has the same shape as the appointment
+        webhook payload.
+      parameters:
+        - name: booking_id
+          in: query
+          required: true
+          schema: {$ref: '#/components/schemas/BookingId'}
+        - name: appointment_id
+          in: query
+          schema: {$ref: '#/components/schemas/AppointmentId'}
+      responses:
+        '200':
+          description: Booking details.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/BookingDetails'}
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourBooking'
+
+  /api/appointments/customer_appointments:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: listCustomerAppointments
+      tags: [Health Checkups]
+      summary: List a customer's appointments
+      description: |
+        Returns up to 50 of a customer's most recent appointments (newest first), each in
+        the appointment webhook shape. Identify the customer by `api_customer_id` or
+        `employee_id` (`api_customer_id` wins when both are sent).
+      parameters:
+        - name: api_customer_id
+          in: query
+          schema: {type: string}
+        - name: employee_id
+          in: query
+          schema: {type: string}
+        - name: from_date
+          in: query
+          description: Only appointments on or after this date.
+          schema: {type: string, format: date}
+        - name: to_date
+          in: query
+          description: Only appointments on or before this date.
+          schema: {type: string, format: date}
+        - name: status
+          in: query
+          description: Only appointments in this status (for example `confirmed`).
+          schema: {type: string}
+      responses:
+        '200':
+          description: Appointments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [appointments]
+                properties:
+                  appointments:
+                    type: array
+                    items: {$ref: '#/components/schemas/AppointmentDetails'}
+        '400':
+          description: Neither id was sent.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [api_customer_id or employee_id is required]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Unknown customer, or no appointments match.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [No appointments found for the given customer]}}
+
+  /api/appointments/payment_details:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: getAppointmentPaymentDetails
+      tags: [Health Checkups]
+      summary: Quote a booking
+      description: |
+        Prices a prospective booking without creating it and shows how it would be split
+        between wallets and an amount the member pays. Customers must already exist (have
+        been booked or registered before).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppointmentPaymentDetailsRequest'}
+            example:
+              provider_id: 1001
+              appointment_type: inclinic
+              service_name: ahc
+              customers:
+                - api_customer_id: CUST1001
+                  package_ids: [1001]
+                  booking_customer: true
+      responses:
+        '200':
+          description: Quote.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/AppointmentPaymentDetailsResponse'}
+              example:
+                payment_details:
+                  total_amount: 1500.0
+                  sponsor_wallet_amount: 1500.0
+                  customer_wallet_amount: 0.0
+                  promotional_wallet_amount: 0.0
+                  razorpay_amount: 0.0
+                  currency: INR
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: A customer was not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FieldErrors'}
+              example: {errors: {api_customer_id: ['customer not found: CUST1001']}}
+        '422':
+          $ref: '#/components/responses/UnprocessableMessages'
+
+  /api/bookings/{booking_id}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/BookingIdPath'
+    patch:
+      operationId: rescheduleBooking
+      tags: [Health Checkups]
+      summary: Reschedule every appointment in a booking
+      description: |
+        Moves all appointments in the booking. See `rescheduleAppointment` for the rules.
+        Some appointments may be moved while others are not; the response then lists both as
+        comma-separated `appointment_id`s.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RescheduleAppointmentRequest'}
+            example:
+              appointment_date_time: '2026-01-16T02:30:00Z'
+      responses:
+        '200':
+          description: All or some appointments rescheduled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PartialResult'}
+              examples:
+                full:
+                  value: {message: Booking rescheduled successfully}
+                partial:
+                  value:
+                    message: Some appointments cannot be rescheduled
+                    success: APT1A2B3C4D5,APT1A2B3C4D6
+                    failed: APT1A2B3C4D7
+        '400':
+          description: Validation error, or no appointment in the booking can be rescheduled.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/FieldErrors'
+                  - $ref: '#/components/schemas/ErrorMessages'
+              example: {errors: {messages: [This booking cannot be rescheduled]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourBooking'
+        '422':
+          $ref: '#/components/responses/DifferentProvider'
+
+  /api/bookings/{booking_id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/BookingIdPath'
+    patch:
+      operationId: cancelBooking
+      tags: [Health Checkups]
+      summary: Cancel every appointment in a booking
+      description: |
+        Home collection: allowed until a phlebotomist is assigned or 30 minutes before the
+        slot, whichever is first. In-clinic: allowed until 30 minutes before the slot.
+      responses:
+        '200':
+          description: All or some appointments cancelled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/PartialResult'}
+              examples:
+                full:
+                  value: {message: Booking cancelled successfully}
+                partial:
+                  value:
+                    message: Some appointments cannot be cancelled
+                    success: APT1A2B3C4D5
+                    failed: APT1A2B3C4D6
+        '400':
+          description: No appointment in the booking can be cancelled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [This booking cannot be cancelled]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourBooking'
+
+  /api/appointments/{appointment_id}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    patch:
+      operationId: rescheduleAppointment
+      tags: [Health Checkups]
+      summary: Reschedule an appointment
+      description: |
+        - New time only: send `appointment_date_time`.
+        - New provider: add `provider_id`. Not allowed once the appointment is confirmed at
+          the current provider.
+        - New address (home collection): add `address` together with `provider_id`.
+
+        Home collection: allowed until a phlebotomist is assigned or 30 minutes before the
+        slot, whichever is first. In-clinic: until 30 minutes before the slot. An in-clinic
+        appointment cannot become home collection.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/RescheduleAppointmentRequest'}
+            example:
+              appointment_date_time: '2026-01-16T02:30:00Z'
+              provider_id: 1002
+      responses:
+        '200':
+          description: Rescheduled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Message'}
+              example: {message: Appointment rescheduled successfully}
+        '400':
+          description: Validation error, or the appointment cannot be rescheduled.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/FieldErrors'
+                  - $ref: '#/components/schemas/ErrorMessages'
+              example: {errors: {messages: [This appointment cannot be rescheduled]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+        '422':
+          description: |
+            Different provider after confirmation, a request already in progress, or a
+            duplicate appointment at the new slot.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/FieldErrors'
+                  - $ref: '#/components/schemas/ErrorMessages'
+              examples:
+                provider:
+                  value: {errors: {provider_id: [Appointment cannot be rescheduled to a different provider.]}}
+                inProgress:
+                  value: {errors: {messages: ['Previous request is in progress, please try rescheduling after few minutes']}}
+
+  /api/appointments/{appointment_id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    patch:
+      operationId: cancelAppointment
+      tags: [Health Checkups]
+      summary: Cancel an appointment
+      description: Same cut-offs as `cancelBooking`.
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Message'}
+              example: {message: Appointment cancelled successfully}
+        '400':
+          description: The appointment cannot be cancelled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [This appointment cannot be cancelled]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+        '422':
+          $ref: '#/components/responses/UnprocessableMessages'
+
+  /api/appointments/{appointment_id}/voucher:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getAppointmentVoucher
+      tags: [Health Checkups]
+      summary: Download the appointment voucher
+      description: Returns the voucher PDF. Available only once the appointment is `confirmed`.
+      responses:
+        '200':
+          description: Voucher PDF.
+          content:
+            application/pdf:
+              schema: {type: string, contentMediaType: application/pdf}
+        '400':
+          description: Not confirmed yet, or this appointment type has no voucher.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [voucher only available for download when appointment is confirmed]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/appointments/{appointment_id}/reports:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getAppointmentReports
+      tags: [Health Checkups]
+      summary: Get verified report links
+      description: |
+        Call when the appointment is `partially_received` or `received`. Returns links to
+        the verified reports, or a message if none are verified yet.
+      responses:
+        '200':
+          description: Report links, or not yet verified.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - type: object
+                    required: [reports]
+                    properties:
+                      reports:
+                        type: array
+                        items: {type: string, format: uri}
+                  - $ref: '#/components/schemas/Message'
+              examples:
+                verified:
+                  value: {reports: ['https://files.example.com/reports/APT1A2B3C4D5.pdf']}
+                pending:
+                  value: {message: Reports will be available to download once they are verified}
+        '400':
+          description: Reports are not available in the current status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [Reports unavailable]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/appointments/{appointment_id}/lab_results:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getAppointmentLabResults
+      tags: [Health Checkups]
+      summary: Get digitized lab results
+      description: |
+        Returns the structured lab values for an appointment (same body as the
+        `labResults` webhook). Enabled on request: ask hlthstack to register a lab-results
+        webhook endpoint for you; without one this returns 401.
+      responses:
+        '200':
+          description: Lab results.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/LabResultsPayload'}
+        '400':
+          description: Not yet verified.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [Digitized lab results will be available once they are verified]}}
+        '401':
+          description: Lab results are not enabled for you (or the token is invalid).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [Unauthorised]}}
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/appointments/{appointment_id}/update_status:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    post:
+      operationId: simulateAppointmentStatus
+      tags: [Testing]
+      summary: (Staging only) Move an appointment to a new status
+      description: |
+        **Staging only.** Production returns 401. Moves the appointment through its
+        lifecycle and fires the same webhook a real update would.
+      servers:
+        - url: https://staging-api.hlthstack.io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [confirm, assign_phlebo, cancel, completed, reschedule, reports_partially_received, reports_received, lab_result]
+                  description: |
+                    `reschedule` moves the appointment to the next day. `assign_phlebo` needs a
+                    confirmed appointment. `lab_result` needs a `received` appointment and a
+                    lab-results webhook endpoint.
+            example: {status: confirm}
+      responses:
+        '200':
+          description: Status changed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Messages'}
+              example: {messages: [Appointment status updated successfully]}
+        '401':
+          description: Called outside staging (or invalid token).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorList'}
+              example: {errors: ['Unauthorised, This API is intended for use only in non-production environments']}
+        '422':
+          description: Invalid status or precondition not met.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorList'}
+              example: {errors: [Appointment is not confirmed yet]}
+        '500':
+          description: Transition not allowed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorList'}
+              example: {errors: [Appointment status cannot be changed from confirmed to confirm]}
+
+  # ---------------------------------------------------------------- Consultations
+  /api/consultations/inclinic_consultation/providers:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: listInclinicConsultationProviders
+      tags: [Consultations]
+      summary: List in-clinic doctors
+      description: Doctors near a location for the given consultation packages, with doctor details.
+      parameters:
+        - $ref: '#/components/parameters/PackageIdsQuery'
+        - $ref: '#/components/parameters/PincodeQuery'
+        - $ref: '#/components/parameters/LatitudeQuery'
+        - $ref: '#/components/parameters/LongitudeQuery'
+        - name: radius
+          in: query
+          description: Search radius in km (1-100). Default 100.
+          schema: {type: number, minimum: 1, maximum: 100, default: 100}
+        - $ref: '#/components/parameters/PlanIdQuery'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/SortBy'
+        - $ref: '#/components/parameters/SortAsc'
+        - $ref: '#/components/parameters/DoctorGender'
+        - $ref: '#/components/parameters/VisitedBeforeCustomer'
+      responses:
+        '200':
+          description: Providers.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProvidersResponse'}
+              example:
+                providers:
+                  - provider_id: 2001
+                    locality: Madhapur
+                    city: Hyderabad
+                    pincode: '500081'
+                    estimated_distance: 2.2 kms
+                    doctor_id: DOC000000001
+                    doctor_name: Dr. Jane Doe
+                    doctor_specialities: [General Medicine]
+                    doctor_experience: 8
+                    doctor_qualification: MBBS
+                    doctor_languages: [English, Hindi]
+                    doctor_fee_details: {mrp: '1000', selling_price: '800'}
+                    doctor_availability: '2026-01-15'
+                    doctor_gender: Female
+                    hospital_name: Example Clinic
+                    hospital_location: Madhapur
+                total_results: 1
+                page: 1
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ServiceNotEnabled'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/consultations/specialist_consultation/providers:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: listSpecialistConsultationProviders
+      tags: [Consultations]
+      summary: List online specialists
+      description: |
+        Doctors available for online (audio/video) specialist consultations. No location is
+        needed. Send `default_provider=true` to list the providers configured for **priority**
+        consultations; an empty list means priority consultation is unavailable for the
+        package or right now.
+      parameters:
+        - $ref: '#/components/parameters/PackageIdsQuery'
+        - name: default_provider
+          in: query
+          description: '`true` to list priority-consultation providers.'
+          schema: {type: boolean}
+        - $ref: '#/components/parameters/PlanIdQuery'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Providers.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ProvidersResponse'}
+              example:
+                providers:
+                  - provider_id: 3001
+                    timezone: Asia/Kolkata
+                    rating: 5
+                    doctor_name: Dr. Jane Doe
+                    doctor_specialities: [Neurology]
+                    doctor_experience: 10
+                    doctor_qualification: MBBS, MD
+                    doctor_languages: [English]
+                    doctor_fee_details: {mrp: '900', selling_price: '700'}
+                    doctor_availability: '2026-01-15'
+                    doctor_photo: {url: 'https://files.example.com/doctor.jpg'}
+                    doctor_gender: Female
+                min_price: 700
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ServiceNotEnabled'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /api/consultations/inclinic_consultation:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: createInclinicConsultation
+      tags: [Consultations]
+      summary: Book an in-clinic consultation
+      description: |
+        Books an in-person consultation at the doctor's clinic. `service_mode` must be
+        `at_provider_location`; `address` (the member's) is required. The booking is made
+        for the first customer in `customers`. Subscription selection works as in
+        `createAppointment`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateInclinicConsultationRequest'}
+            example:
+              appointment_date_time: '2026-01-15T04:30:00.000Z'
+              service_mode: at_provider_location
+              provider_id: 2001
+              customers:
+                - name: Jane Doe
+                  dob: '1990-08-24'
+                  mobile_number: '9999999999'
+                  api_customer_id: CUST1001
+                  gender: female
+                  package_ids: [2001]
+              address:
+                address_line_one: 1 Example Road
+                address_line_two: Kondapur
+                city: Hyderabad
+                state: Telangana
+                country: India
+                pincode: '500084'
+                latitude: 17.47
+                longitude: 78.35
+      responses:
+        '200':
+          $ref: '#/components/responses/ConsultationCreated'
+        '400':
+          $ref: '#/components/responses/ConsultationBookingError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ConsultationBookingConflict'
+
+  /api/consultations/specialist_consultation:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: createSpecialistConsultation
+      tags: [Consultations]
+      summary: Book an online specialist consultation
+      description: |
+        Books an audio or video consultation.
+
+        - **Scheduled** (`priority_consultation: false`): `appointment_date_time` must be a
+          slot from `listSlots`; `provider_id` must not be a priority provider.
+        - **Priority** (`priority_consultation: true`): a doctor calls within about 4 hours.
+          Available 8 AM-4 PM IST; `provider_id` must come from
+          `listSpecialistConsultationProviders` with `default_provider=true`;
+          `appointment_date_time` is optional. The consultation is `confirmed` immediately and
+          the doctor's details arrive by webhook once a doctor is assigned.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateSpecialistConsultationRequest'}
+            example:
+              appointment_date_time: '2026-01-15T04:30:00.000Z'
+              service_mode: audio_call
+              provider_id: 3001
+              priority_consultation: false
+              customers:
+                - name: Jane Doe
+                  dob: '1990-08-24'
+                  mobile_number: '9999999999'
+                  api_customer_id: CUST1001
+                  gender: female
+                  package_ids: [3001]
+      responses:
+        '200':
+          $ref: '#/components/responses/ConsultationCreated'
+        '400':
+          $ref: '#/components/responses/ConsultationBookingError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ConsultationBookingConflict'
+
+  /api/consultations/inclinic_consultation/{appointment_id}:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getInclinicConsultation
+      tags: [Consultations]
+      summary: Get an in-clinic consultation
+      responses:
+        '200':
+          description: Consultation details.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConsultationDetails'}
+              example:
+                booking_id: EKI0000000001700000000
+                appointment_id: APT1A2B3C4D5
+                appointment_date_time: '2026-01-15T04:30:00Z'
+                status: confirmed
+                service_name: Inclinic consultation
+                service_mode: at_provider_location
+                api_customer_id: CUST1001
+                customer_id: EKI000000001
+                doctor_id: DOC000000001
+                doctor_name: Dr. Jane Doe
+                doctor_specialities: [General Medicine]
+                doctor_gender: Female
+                doctor_qualification: MBBS
+                doctor_languages: [English, Hindi]
+                doctor_experience: 8
+                provider_id: 2001
+                is_priority_consultation: false
+                is_default_provider: false
+                latitude: 17.44
+                longitude: 78.38
+                hospital_name: Example Clinic
+                hospital_location: Madhapur
+                hospital_address: 1 Example Road, Madhapur, Hyderabad, Telangana 500081
+        '400':
+          $ref: '#/components/responses/InvalidAppointmentId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/consultations/specialist_consultation/{appointment_id}:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getSpecialistConsultation
+      tags: [Consultations]
+      summary: Get an online specialist consultation
+      responses:
+        '200':
+          description: Consultation details.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConsultationDetails'}
+              example:
+                booking_id: EKI0000000001700000000
+                appointment_id: APT1A2B3C4D5
+                appointment_date_time: '2026-01-15T04:30:00Z'
+                status: confirmed
+                service_name: Specialist consultation
+                service_mode: video_call
+                api_customer_id: CUST1001
+                customer_id: EKI000000001
+                doctor_id: DOC000000002
+                doctor_name: Dr. Jane Doe
+                doctor_specialities: [Neurology]
+                doctor_gender: Female
+                doctor_qualification: MBBS, MD
+                doctor_languages: [English]
+                doctor_experience: 10
+                provider_id: 3001
+                is_priority_consultation: false
+                is_default_provider: false
+                summary: null
+                prescriptions: []
+                meeting_link: https://meet.example.com/abc
+        '400':
+          $ref: '#/components/responses/InvalidAppointmentId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/consultations/{appointment_id}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    patch:
+      operationId: rescheduleConsultation
+      tags: [Consultations]
+      summary: Reschedule a consultation
+      description: |
+        Moves the consultation to a new slot with the same doctor (to change doctor, cancel
+        and book again). Allowed up to 30 minutes before the current slot, and not within
+        5 minutes of the previous booking or reschedule.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [appointment_date_time]
+              properties:
+                appointment_date_time:
+                  type: string
+                  format: date-time
+                  description: New slot (`utc_slot_time` from `listSlots`).
+            example: {appointment_date_time: '2026-01-16T04:30:00.000Z'}
+      responses:
+        '200':
+          description: Rescheduled.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Message'}
+              example: {message: Appointment rescheduled successfully}
+        '400':
+          description: Not allowed, or the slot is unavailable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errors]
+                properties:
+                  errors:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items: {type: string}
+              examples:
+                rule:
+                  value: {errors: {reschedule_error: ['Rescheduling is not allowed: The appointment time must be at least 30 minutes from now.']}}
+                slot:
+                  value: {errors: {messages: ['Selected slot is unavailable, please select different slot']}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+        '422':
+          description: Blocked by the reschedule policy (status, plan, timing).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [Please wait 3 minute(s) before you reschedule this appointment.]}}
+
+  /api/consultations/{appointment_id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    patch:
+      operationId: cancelConsultation
+      tags: [Consultations]
+      summary: Cancel a consultation
+      description: Allowed up to 30 minutes before the slot, and not after a no-show or rejection.
+      responses:
+        '200':
+          description: Cancelled. Note the key is `msg`.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [msg]
+                properties:
+                  msg: {type: string}
+              example: {msg: Appointment cancelled}
+        '400':
+          description: Cancellation not allowed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [errors]
+                properties:
+                  errors:
+                    type: object
+                    properties:
+                      cancel_error:
+                        type: array
+                        items: {type: string}
+              example: {errors: {cancel_error: ['Cancellation not allowed: The appointment time must be at least 30 minutes from now.']}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+        '422':
+          $ref: '#/components/responses/UnprocessableMessages'
+
+  /api/consultations/{appointment_id}/summary_and_prescription:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getConsultationSummaryAndPrescription
+      tags: [Consultations]
+      summary: Get the consultation summary and prescriptions
+      description: File links are pre-signed and expire after a few minutes; fetch them when needed.
+      responses:
+        '200':
+          description: Summary and prescriptions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [summary, doctor_prescriptions]
+                properties:
+                  summary: {$ref: '#/components/schemas/FileLink'}
+                  doctor_prescriptions:
+                    type: array
+                    items: {$ref: '#/components/schemas/FileLink'}
+              example:
+                summary: {file_name: summary.pdf, file_url: 'https://files.example.com/summary.pdf'}
+                doctor_prescriptions:
+                  - {file_name: prescription.pdf, file_url: 'https://files.example.com/prescription.pdf'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+        '404':
+          description: No consultation record yet.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [Consultation not found]}}
+
+  /api/consultations/{appointment_id}/voucher:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    get:
+      operationId: getConsultationVoucher
+      tags: [Consultations]
+      summary: Download an in-clinic consultation voucher
+      description: Returns the voucher PDF for a confirmed in-clinic consultation.
+      responses:
+        '200':
+          description: Voucher PDF.
+          content:
+            application/pdf:
+              schema: {type: string, contentMediaType: application/pdf}
+        '400':
+          description: Not confirmed, or not in-clinic.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [voucher only available for download when appointment is confirmed and inclinic]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/consultations/{appointment_id}/upload_documents:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    post:
+      operationId: uploadConsultationDocuments
+      tags: [Consultations]
+      summary: Upload medical documents for a consultation
+      description: |
+        Shares the member's reports with the doctor (online specialist and priority
+        consultations). Multipart form with one or more `files[][name]` + `files[][value]`
+        pairs. Allowed types: PDF, JPEG, PNG.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: ['files[][name]', 'files[][value]']
+              properties:
+                'files[][name]':
+                  type: string
+                  description: Title of the document. Repeat once per file, in the same order as `files[][value]`.
+                'files[][value]':
+                  type: string
+                  contentMediaType: application/octet-stream
+                  description: The file.
+      responses:
+        '200':
+          description: Uploaded.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Message'}
+              example: {message: Document uploaded successfully}
+        '400':
+          description: Bad form data or file.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: {}
+              examples:
+                format:
+                  value: {message: Invalid file format}
+                empty:
+                  value: {message: No files found}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/NotYourAppointment'
+
+  /api/consultations/{appointment_id}/update_status:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/AppointmentIdPath'
+    patch:
+      operationId: simulateConsultationStatus
+      tags: [Testing]
+      summary: (Staging only) Move a consultation to a new status
+      description: |
+        **Staging only**; the route does not exist in production (404). Fires the same
+        webhook as a real update. `reports_received` attaches a sample summary and
+        prescription and then moves the consultation to `received`.
+      servers:
+        - url: https://staging-api.hlthstack.io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [confirm, cancel, completed, reschedule, reports_received]
+                reschedule_time:
+                  type: string
+                  format: date-time
+                  description: For `reschedule`. Defaults to 1 day from now.
+            example: {status: confirm}
+      responses:
+        '200':
+          description: Status changed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Messages'}
+              example: {messages: [Appointment status updated successfully]}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Invalid status or transition.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/ErrorList'
+                  - $ref: '#/components/schemas/ErrorMessages'
+              examples:
+                invalid:
+                  value: {errors: [Invalid status]}
+                transition:
+                  value: {errors: {messages: ["Event 'confirm' cannot transition from 'confirmed'."]}}
+
+  # ---------------------------------------------------------------- ePharmacy
+  /api/epharmacy/medicines/search:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: searchMedicines
+      tags: [ePharmacy]
+      summary: Search medicines
+      description: |
+        Searches the catalogue. The returned `id` is the only medicine id the cart accepts.
+        `rx_required: true` means a prescription must be attached before ordering.
+      parameters:
+        - name: name
+          in: query
+          required: true
+          description: Search text, at least 3 characters.
+          schema: {type: string, minLength: 3}
+          example: paracetamol
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 1, default: 1}
+      responses:
+        '200':
+          description: Matches.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/MedicineSearchResponse'}
+              example:
+                medicines:
+                  - id: 50001
+                    name: Example 500 Tablet
+                    composition_with_strength: Paracetamol (500mg)
+                    manufacturer_name: Example Pharma Ltd
+                    packing_label: strip of 10 tablets
+                    mrp: 25.0
+                    available: true
+                    type: allopathy
+                    rx_required: false
+                meta: {page: 1}
+        '400':
+          description: Invalid parameters.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FieldErrors'}
+              example: {errors: {name: [must be at least 3 characters]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/prescriptions/digitize:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: digitizePrescription
+      tags: [ePharmacy]
+      summary: Upload a prescription for digitization
+      description: |
+        Upload a prescription; hlthstack extracts the medicines and, when done, builds a
+        cart for the member. Poll `getPrescriptionDigitization` or wait for the
+        `prescriptionDigitized` webhook.
+
+        `customers` is an array with exactly one customer. Send an `Idempotency-Key` to make
+        retries safe: repeating a key returns the existing request.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          description: Optional. A unique key per upload; a repeat returns the original request.
+          schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: ['customers[][name]', 'customers[][api_customer_id]', 'customers[][mobile_number]', 'customers[][gender]', 'customers[][dob]', 'files[]']
+              properties:
+                'customers[][name]': {type: string}
+                'customers[][api_customer_id]': {type: string, pattern: '^[a-zA-Z0-9]*$'}
+                'customers[][mobile_number]': {type: string, pattern: '^[0-9]{10}$'}
+                'customers[][gender]': {type: string, enum: [male, female, non-binary]}
+                'customers[][dob]': {type: string, format: date}
+                plan_id: {type: string}
+                'files[]':
+                  type: array
+                  description: JPEG, PNG or PDF; each up to 10 MB.
+                  items: {type: string, contentMediaType: application/octet-stream}
+      responses:
+        '202':
+          description: Accepted (or already received for this Idempotency-Key).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DigitizationAccepted'}
+              example:
+                request_id: DIGI_RQ_A1B2C3D4E
+                digitization_id: DIGI_RQ_A1B2C3D4E
+                status: pending
+                message: Prescription uploaded successfully. You will receive a webhook once digitization is complete.
+        '400':
+          description: Invalid customer or files.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FieldErrors'}
+              example: {errors: {customers: [must contain exactly one customer]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/prescriptions/digitize/{request_id}:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - name: request_id
+        in: path
+        required: true
+        schema: {type: string}
+        example: DIGI_RQ_A1B2C3D4E
+    get:
+      operationId: getPrescriptionDigitization
+      tags: [ePharmacy]
+      summary: Get digitization status
+      description: |
+        Statuses: `pending` -> `ai_processing` -> `manual_review` -> `completed` | `partial` |
+        `rejected` | `failed`. On `completed`/`partial` the response has the extracted `items`
+        and a ready `cart_id`. File URLs are pre-signed and expire after 5 minutes.
+      responses:
+        '200':
+          description: Status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/DigitizationStatus'}
+              example:
+                request_id: DIGI_RQ_A1B2C3D4E
+                status: completed
+                api_customer_id: CUST1001
+                files: [{url: 'https://files.example.com/prescription.pdf'}]
+                message: Prescription digitization is completed.
+                items: [{medicine_id: 50001, name: Example 500 Tablet, quantity: 1}]
+                cart_id: 701
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Unknown request id.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              example: {errors: {messages: [Invalid or expired digitization request_id]}}
+
+  /api/epharmacy/cart:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: getCart
+      tags: [ePharmacy]
+      summary: Get the member's cart
+      description: There is one cart per member per plan.
+      parameters:
+        - $ref: '#/components/parameters/CustomerDetailsApiCustomerId'
+        - $ref: '#/components/parameters/PlanIdQuery'
+      responses:
+        '200':
+          $ref: '#/components/responses/Cart'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or cart not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+              example: {success: false, message: Cart not found}
+    patch:
+      operationId: updateCart
+      tags: [ePharmacy]
+      summary: Create or update the member's cart
+      description: |
+        Find-or-create and merge. Send at least one change: `products`, `address` or
+        `address_id`, `prescription_urls` / `prescription_files`, `remove_prescription_ids`,
+        or `fulfillment_type`. The whole update is atomic: on error the cart is unchanged.
+
+        - `products`: `quantity: 0` removes a line, `> 0` adds or updates it; ids not sent are
+          untouched; duplicate ids are rejected.
+        - `customer_details` other than `api_customer_id` create or enrich the member; a new
+          `api_customer_id` creates the member.
+        - Attach a prescription whenever any item has `rx_required: true`.
+        - For store pickup, send `fulfillment_type: store_pickup` with `selected_chemist_id`
+          (a store `id` from `getFulfillmentOptions`).
+
+        Use `multipart/form-data` (with bracketed field names) to upload `prescription_files[]`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/UpdateCartRequest'}
+            examples:
+              products:
+                value:
+                  plan_id: EXAMPLE_PLAN
+                  customer_details:
+                    api_customer_id: CUST1001
+                    name: Jane Doe
+                    dob: '1990-08-24'
+                    mobile_number: '9999999999'
+                    gender: female
+                  products:
+                    - {id: 50001, quantity: 2}
+                    - {id: 50002, quantity: 0}
+              address:
+                value:
+                  plan_id: EXAMPLE_PLAN
+                  customer_details: {api_customer_id: CUST1001}
+                  address:
+                    line1: 1 Example Road
+                    line2: Motera
+                    city: Ahmedabad
+                    state: Gujarat
+                    pincode: '380005'
+                    latitude: 23.10
+                    longitude: 72.59
+              prescriptionUrl:
+                value:
+                  plan_id: EXAMPLE_PLAN
+                  customer_details: {api_customer_id: CUST1001}
+                  prescription_urls: ['https://files.example.com/prescription.pdf']
+          multipart/form-data:
+            schema:
+              type: object
+              required: ['customer_details[api_customer_id]']
+              properties:
+                'customer_details[api_customer_id]': {type: string}
+                plan_id: {type: string}
+                'prescription_files[]':
+                  type: array
+                  description: Each smaller than 7 MB; PDF, PNG or JPEG.
+                  items: {type: string, contentMediaType: application/octet-stream}
+      responses:
+        '200':
+          $ref: '#/components/responses/Cart'
+        '400':
+          $ref: '#/components/responses/PlanInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: Validation error; the cart is unchanged.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              examples:
+                noChange:
+                  value: {errors: {messages: [cart updates are required]}}
+                unavailable:
+                  value: {errors: {messages: [medicine 50002 is unavailable]}}
+                address:
+                  value: {errors: {messages: [provide either address_id or address]}}
+
+  /api/epharmacy/fulfillment_options:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    get:
+      operationId: getFulfillmentOptions
+      tags: [ePharmacy]
+      summary: Get delivery and pickup options
+      description: |
+        Live express/standard delivery and store-pickup options for the cart. Slow (typically
+        3-8 s). Delivery and pickup are evaluated independently: check the nested `success`
+        flags, not just the HTTP status.
+
+        Each option has a `vendor_id` (pass it as `medicine_vendor_id` to
+        `getOrderPaymentDetails`) and a `location_token` (pass it to `createOrder`). Tokens are
+        specific to one mode or store; fetch options again if the member changes their choice.
+      parameters:
+        - $ref: '#/components/parameters/CustomerDetailsApiCustomerId'
+        - name: cart_id
+          in: query
+          required: true
+          schema: {type: integer}
+        - $ref: '#/components/parameters/PlanIdQuery'
+      responses:
+        '200':
+          description: Options (check nested `success`).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FulfillmentOptions'}
+              example:
+                success: true
+                delivery_options:
+                  success: true
+                  standard:
+                    vendor_id: 3
+                    mrp: 360
+                    selling_price: 360
+                    additional_charges: 0
+                    express_premium: 0
+                    total_payable: 360
+                    discount_price: 0
+                    delivery_details: {type: home_delivery, display_eta: 24-48 hrs}
+                    products: []
+                    missing_products: []
+                    location_token: OPAQUE_TOKEN
+                pickup_options:
+                  success: false
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or cart not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+              example: {success: false, message: Cart not found}
+        '422':
+          description: Empty cart or no address.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+              example: {success: false, message: Delivery address is required}
+
+  /api/epharmacy/orders/payment_details:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: getOrderPaymentDetails
+      tags: [ePharmacy]
+      summary: Price the cart
+      description: |
+        Final amounts before ordering, including the wallet split. `total_payable` is what
+        the member still owes. Note the field is `selected_delivery_option` here but
+        `delivery_option` on `createOrder`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/OrderPaymentDetailsRequest'}
+            example:
+              plan_id: EXAMPLE_PLAN
+              customer_details: {api_customer_id: CUST1001}
+              cart_id: 701
+              selected_delivery_option: standard
+              medicine_vendor_id: 3
+      responses:
+        '200':
+          description: Pricing.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrderPaymentDetails'}
+              example:
+                products:
+                  - {id: 50001, name: Example 500 Tablet, item_type: allopathy, rx_required: false, quantity: 2, mrp: 50.0, offered_price: 45.0}
+                payment_details:
+                  total_mrp: 50.0
+                  sub_total: 45.0
+                  discount: 5.0
+                  shipping_charge: 50.0
+                  free_shipping: false
+                  total_amount: 95.0
+                  wallet_deduction: 95.0
+                  spending_balance_deduction: 0.0
+                  total_payable: 0.0
+                estimated_time: 24-48 hrs
+                fulfillment:
+                  type: delivery
+                  delivery_details: {mode: standard, eta: 24-48 hrs, shipping_charge: 50.0, free_shipping: false}
+                address: {}
+        '400':
+          description: Invalid request.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FieldErrors'}
+              example: {errors: {selected_delivery_option: [is invalid]}}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or cart not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+        '422':
+          description: Pharmacy benefit not enabled, or option not available.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/OrderFailure'
+                  - $ref: '#/components/schemas/ErrorMessages'
+              examples:
+                benefit:
+                  value: {success: false, errors: {msg: Pharmacy benefit not enabled for this plan, recall: false}}
+                option:
+                  value: {errors: {messages: [Selected delivery option is not available]}}
+
+  /api/epharmacy/orders:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+    post:
+      operationId: createOrder
+      tags: [ePharmacy]
+      summary: Place an order
+      description: |
+        Places an order from the cart. The response `status` depends on your payment flow
+        (fixed per contract):
+
+        - `confirmed`: the wallet covered the whole amount.
+        - `payment_pending`: send `payment_link` to the member; unpaid orders are abandoned
+          after 3 hours.
+        - `partner_payment_pending`: collect `amount_to_collect` yourself, then call
+          `confirmOrder`; unconfirmed orders are abandoned after 3 hours.
+
+        For store pickup, set it on the cart first (`updateCart`); don't pass the store here.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CreateOrderRequest'}
+            example:
+              plan_id: EXAMPLE_PLAN
+              customer_details: {api_customer_id: CUST1001}
+              cart_id: 701
+              delivery_option: standard
+              location_token: OPAQUE_TOKEN
+      responses:
+        '200':
+          description: Order placed.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CreateOrderResponse'}
+              examples:
+                confirmed:
+                  value:
+                    success: true
+                    status: confirmed
+                    booking_id: 90001
+                    user_prescription_details: {status: confirmed, unique_id: EPO000000000001}
+                paymentPending:
+                  value:
+                    success: true
+                    status: payment_pending
+                    payment_link: https://pay.example.com/abc
+                    booking_id: 90002
+                    user_prescription_details: {status: received, unique_id: EPO000000000002}
+                partnerPaymentPending:
+                  value:
+                    success: true
+                    status: partner_payment_pending
+                    booking_id: 90003
+                    order_id: EPO000000000003
+                    amount_to_collect: 261.0
+                    currency: INR
+                    user_prescription_details: {status: received, unique_id: EPO000000000003}
+        '400':
+          $ref: '#/components/responses/PlanInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+        '422':
+          description: Benefit not enabled, pricing/booking failure, unserviceable address or missing prescription.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/OrderFailure'}
+              example: {success: false, errors: {msg: Pharmacy benefit not enabled for this plan, recall: false}}
+    get:
+      operationId: listOrders
+      tags: [ePharmacy]
+      summary: List a member's orders
+      description: Newest first.
+      parameters:
+        - $ref: '#/components/parameters/CustomerDetailsApiCustomerId'
+        - $ref: '#/components/parameters/Page'
+        - name: per_page
+          in: query
+          schema: {type: integer, minimum: 1, default: 10}
+      responses:
+        '200':
+          description: Orders.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, orders, meta]
+                properties:
+                  success: {type: boolean}
+                  orders:
+                    type: array
+                    items: {$ref: '#/components/schemas/Order'}
+                  meta:
+                    type: object
+                    properties:
+                      current_page: {type: integer}
+                      next_page: {type: [integer, 'null']}
+                      prev_page: {type: [integer, 'null']}
+                      total_pages: {type: integer}
+                      total_count: {type: integer}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+
+  /api/epharmacy/orders/{order_id}:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/OrderIdPath'
+    get:
+      operationId: getOrder
+      tags: [ePharmacy]
+      summary: Get an order
+      description: The source of truth for an order's state; use it to reconcile webhooks.
+      parameters:
+        - $ref: '#/components/parameters/CustomerDetailsApiCustomerId'
+      responses:
+        '200':
+          description: Order.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, order]
+                properties:
+                  success: {type: boolean}
+                  order: {$ref: '#/components/schemas/Order'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or order not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+              example: {success: false, message: Order not found}
+
+  /api/epharmacy/orders/{order_id}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/OrderIdPath'
+    patch:
+      operationId: cancelOrder
+      tags: [ePharmacy]
+      summary: Cancel an order
+      description: |
+        Possible only before the pharmacy ships (vendor-specific) and never for split orders.
+        Refunds to wallets and payment methods run automatically.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_details]
+              properties:
+                plan_id: {type: string}
+                customer_details: {$ref: '#/components/schemas/CustomerDetailsRef'}
+                reason: {type: string, default: Cancel order}
+                message: {type: string, description: "Free text, for example when reason is \"other\"."}
+            example:
+              customer_details: {api_customer_id: CUST1001}
+              reason: Ordered by mistake
+      responses:
+        '200':
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, order_id, status]
+                properties:
+                  success: {type: boolean}
+                  order_id: {type: string}
+                  status: {type: string}
+              example: {success: true, order_id: EPO000000000001, status: cancelled}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or order not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+        '422':
+          description: Cannot be cancelled.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/SuccessFalseMessage'
+                  - $ref: '#/components/schemas/ErrorMessages'
+              examples:
+                window:
+                  value: {success: false, message: Order cannot be cancelled}
+                already:
+                  value: {errors: {messages: [Order already cancelled]}}
+
+  /api/epharmacy/orders/{order_id}/confirm:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/OrderIdPath'
+    post:
+      operationId: confirmOrder
+      tags: [ePharmacy]
+      summary: Confirm a partner-collected payment
+      description: |
+        Partner-collected flow only. Tells hlthstack you collected `amount_to_collect`.
+        `partner_collected_amount` must equal it exactly. Safe to retry: the same amount and
+        reference returns `already_confirmed`. On 409, back off and retry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_details, partner_collected_amount, partner_payment_reference]
+              properties:
+                customer_details: {$ref: '#/components/schemas/CustomerDetailsRef'}
+                partner_collected_amount:
+                  type: string
+                  description: Decimal amount, for example "261.0".
+                partner_payment_reference:
+                  type: string
+                  description: Your payment/transaction reference.
+            example:
+              customer_details: {api_customer_id: CUST1001}
+              partner_collected_amount: '261.0'
+              partner_payment_reference: TXN-0001
+      responses:
+        '200':
+          description: Confirmed (or already confirmed with the same reference).
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, status, order_id]
+                properties:
+                  success: {type: boolean}
+                  status: {type: string, enum: [confirmed, already_confirmed]}
+                  order_id: {type: string}
+                  partner_collected_amount: {type: number}
+                  partner_payment_reference: {type: string}
+                  vendor_order_status:
+                    type: string
+                    description: '`placement_started` while the order is still being placed, otherwise the order status.'
+              example:
+                success: true
+                status: confirmed
+                order_id: EPO000000000003
+                partner_collected_amount: 261.0
+                partner_payment_reference: TXN-0001
+                vendor_order_status: onhold
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or order not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+        '409':
+          description: A concurrent confirmation is in progress. Retry later.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfirmOrderError'}
+              example: {success: false, status: transaction_locked, errors: {base: Transaction is locked}}
+        '422':
+          description: Invalid payment. `errors` is an array of strings or an object with `base`.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ConfirmOrderError'}
+              example: {success: false, status: invalid_payment, errors: [Payment amount does not match the order amount]}
+
+  /api/epharmacy/orders/{order_id}/update_status:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/OrderIdPath'
+    patch:
+      operationId: simulateOrderStatus
+      tags: [Testing]
+      summary: (Staging only) Move an order to a new status
+      description: |
+        **Staging only**; the route does not exist in production (404). Records a status
+        change and fires the same `status_update` webhook a pharmacy update would. The
+        optional text and tracking fields are passed through to the webhook.
+      servers:
+        - url: https://staging-api.hlthstack.io
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [customer_details, status]
+              properties:
+                customer_details: {$ref: '#/components/schemas/CustomerDetailsRef'}
+                status:
+                  type: string
+                  description: An order status (see `PharmacyOrderStatus`).
+                status_text: {type: string}
+                status_description: {type: string}
+                tracking_number: {type: string}
+                tracking_url: {type: string}
+                tracking_partner: {type: string}
+            example:
+              customer_details: {api_customer_id: CUST1001}
+              status: in_progress
+              status_text: Order is being processed
+      responses:
+        '200':
+          description: Status changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  order_id: {type: string}
+                  status: {type: string}
+                  journey:
+                    type: array
+                    description: Status history, newest first.
+                    items: {type: object}
+              example:
+                success: true
+                order_id: EPO000000000001
+                status: in_progress
+                journey:
+                  - {id: 501, status: in_progress, status_text: Order is being processed, created_at: '2026-01-15T09:26:03.000+05:30'}
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Customer or order not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+        '422':
+          description: Not a valid order status.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SuccessFalseMessage'}
+              example: {success: false, message: 'Invalid status: shipped'}
+
+  # ---------------------------------------------------------------- Wallet
+  /api/{company_slug}/customers/wallet:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/CompanySlug'
+    get:
+      operationId: getCustomerWallet
+      tags: [Wallet]
+      summary: Get a member's benefit wallet
+      description: |
+        Allocated and available amounts per benefit for the member and their active family,
+        primary member first. Identify the member by `api_customer_id` or `customer_id`
+        (`api_customer_id` wins when both are sent); a dependant's id returns the whole
+        family. Send `customer_plan_id` or `subscription_id` to read one subscription
+        (upcoming and ended ones included).
+      parameters:
+        - $ref: '#/components/parameters/PlanIdQuery'
+        - name: api_customer_id
+          in: query
+          schema: {type: string}
+        - name: customer_id
+          in: query
+          description: hlthstack's customer id.
+          schema: {type: string}
+        - $ref: '#/components/parameters/CustomerPlanIdQuery'
+        - $ref: '#/components/parameters/SubscriptionIdQuery'
+      responses:
+        '200':
+          description: Wallet details.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/WalletResponse'}
+              example:
+                status: success
+                data:
+                  members:
+                    - name: Jane Doe
+                      gender: FEMALE
+                      dob: '1990-08-24'
+                      phone: '9999999999'
+                      email: jane@example.com
+                      relationship: SELF
+                      member_status: ACTIVE
+                      relation: self
+                      wallet_details:
+                        benefits:
+                          - benefit_type: pharmacy
+                            allocated_benefit_amount: 12500.0
+                            available_benefit_amount: 10000.0
+                            allocated_benefit_utilization_count: 0
+                            current_benefit_utilization_count: 0
+                        total_allocated_amount: 12500.0
+                        available_amount: 10000.0
+        '400':
+          $ref: '#/components/responses/PlanInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InvalidCompanySlug'
+        '404':
+          description: No customer or wallet found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SimpleError'}
+              example: {error: No wallet details found for the provided customer and plan.}
+        '422':
+          $ref: '#/components/responses/CustomerIdRequired'
+
+  /api/{company_slug}/customers/plans:
+    parameters:
+      - $ref: '#/components/parameters/ApiEntityId'
+      - $ref: '#/components/parameters/ApiSecretKey'
+      - $ref: '#/components/parameters/CompanySlug'
+    get:
+      operationId: listCustomerPlans
+      tags: [Wallet]
+      summary: List a member's plan subscriptions
+      description: |
+        One row per subscription (active, upcoming or in grace; fully lapsed ones are left
+        out). Use `customer_plan_id` to choose which subscription pays when booking or
+        ordering.
+      parameters:
+        - name: api_customer_id
+          in: query
+          schema: {type: string}
+        - name: customer_id
+          in: query
+          schema: {type: string}
+      responses:
+        '200':
+          description: Subscriptions.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/CustomerPlansResponse'}
+              example:
+                status: success
+                data:
+                  customer_plans:
+                    - customer_plan_id: 101
+                      subscription_id: SUB-0001
+                      plan_id: EXAMPLE_TOPUP
+                      plan_name: Top-up
+                      start_date: '2026-01-01'
+                      end_date: '2026-12-31'
+                      grace_end_date: '2027-01-31'
+                      status: active
+                      available_balance: 1500.0
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/InvalidCompanySlug'
+        '404':
+          description: Customer not found.
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/SimpleError'}
+              example: {error: Customer not found.}
+        '422':
+          $ref: '#/components/responses/CustomerIdRequired'
+
+# ================================================================== Webhooks
+webhooks:
+  appointmentStatusUpdate:
+    post:
+      operationId: onAppointmentStatusUpdate
+      tags: [Health Checkups]
+      summary: Appointment status changed or reports uploaded
+      description: |
+        Sent to your `status_updates` endpoint on every appointment status change.
+        `type` is `reports_upload` when the appointment is `partially_received`/`received`
+        and report links are present, otherwise `status_update`. Verify the `Signature`
+        header (see the webhooks guide). Reply 2xx within 30 seconds.
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppointmentDetails'}
+            example:
+              booking_id: EKI0000000001700000000
+              appointment_id: APT1A2B3C4D5
+              customer_id: EKI000000001
+              customer_name: Jane Doe
+              mobile_number: '9999999999'
+              api_customer_id: CUST1001
+              member_id: EMP0001
+              appointment_date_time: '2026-01-15T02:30:00Z'
+              event_timestamp: 1768440000.123
+              booking_source: hlthstack-api
+              service_type: ahc
+              plan_id: EXAMPLE_PLAN
+              customer_plan_id: null
+              subscription_id: null
+              status: confirmed
+              status_text: Confirmed
+              comment: Your appointment is confirmed.
+              provider_id: 1001
+              provider_name: Example Diagnostics
+              provider_branch: Madhapur
+              provider_address: 1 Example Road, Madhapur, Hyderabad
+              voucher_api_url: https://api.hlthstack.io/api/appointments/APT1A2B3C4D5/voucher
+              phlebo_name: John Doe
+              phlebo_number: '+919999999999'
+              type: status_update
+              payment:
+                status: captured
+                total_collected_amount: '0.0'
+                razorpay_amount: '0.0'
+                razorpay_payment_id: null
+                razorpay_order_id: null
+                customer_wallet_amount: '0.0'
+                sponsor_wallet_amount: '0.0'
+                promotional_wallet_amount: '0.0'
+                cod_amount: '0.0'
+                h_points_amount: '0.0'
+                refunded_amount: '0.0'
+                captured_at: '2026-01-14T07:03:10Z'
+                refunded_at: null
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+  consultationStatusUpdate:
+    post:
+      operationId: onConsultationStatusUpdate
+      tags: [Consultations]
+      summary: Consultation status changed
+      description: |
+        Same endpoint and envelope as `appointmentStatusUpdate`, with `service_type`
+        `inclinic_consultation` or `specialist_consultation` plus doctor fields, `summary`,
+        `doctor_prescriptions`, hospital fields (in-clinic) and `meeting_link` (video).
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AppointmentDetails'}
+            example:
+              booking_id: EKI0000000001700000000
+              appointment_id: APT1A2B3C4D5
+              customer_id: EKI000000001
+              api_customer_id: CUST1001
+              appointment_date_time: '2026-01-15T04:30:00Z'
+              booking_source: hlthstack-api
+              service_type: specialist_consultation
+              status: confirmed
+              status_text: Confirmed
+              comment: ''
+              provider_id: 3001
+              doctor_id: DOC000000002
+              doctor_name: Dr. Jane Doe
+              doctor_specialities: [Neurology]
+              doctor_gender: Female
+              doctor_qualification: MBBS, MD
+              doctor_languages: [English]
+              doctor_experience: 10
+              meeting_link: https://meet.example.com/abc
+              summary: null
+              doctor_prescriptions: []
+              type: status_update
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+  labResults:
+    post:
+      operationId: onLabResults
+      tags: [Health Checkups]
+      summary: Digitized lab results available
+      description: Sent to your separately registered `lab_results` endpoint (enabled on request).
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/LabResultsPayload'}
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+  pharmacyOrderStatusUpdate:
+    post:
+      operationId: onPharmacyOrderStatusUpdate
+      tags: [ePharmacy]
+      summary: Pharmacy order status changed
+      description: |
+        Sent to your `status_updates` endpoint on every order status change, including
+        refunds. Each body is a full snapshot. Delivery order is not guaranteed: use the
+        signature timestamp and `getOrder` to reconcile.
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PharmacyOrderWebhook'}
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+  pharmacyPostBilling:
+    post:
+      operationId: onPharmacyPostBilling
+      tags: [ePharmacy]
+      summary: Partner-collected order settled
+      description: |
+        Partner-collected flow only. Sent when every order in the tree is final.
+        `settlement.adjustment_amount` is what you owe the member back. The latest one wins.
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PharmacyPostBillingWebhook'}
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+  pharmacyAdditionalPaymentRequired:
+    post:
+      operationId: onPharmacyAdditionalPaymentRequired
+      tags: [ePharmacy]
+      summary: Partner-collected order needs more money
+      description: Partner-collected flow only. Collect `additional_payment.amount_payable` from the member.
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PharmacyAdditionalPaymentWebhook'}
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+  prescriptionDigitized:
+    post:
+      operationId: onPrescriptionDigitized
+      tags: [ePharmacy]
+      summary: Prescription digitization finished
+      description: Sent to your `digitization_results` endpoint when a request reaches `completed`, `partial`, `rejected` or `failed`.
+      parameters:
+        - $ref: '#/components/parameters/WebhookSignature'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/PrescriptionDigitizedWebhook'}
+      responses:
+        '200':
+          description: Acknowledge receipt with any 2xx.
+
+# ================================================================== Components
+components:
+  securitySchemes:
+    basicAuth:
+      type: http
+      scheme: basic
+      description: Username and password issued by hlthstack. Used only by `getAccessToken`.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Access token from `getAccessToken`, valid for 1 hour.
+
+  parameters:
+    ApiEntityId:
+      name: API-ENTITY-ID
+      in: header
+      required: false
+      description: |
+        Multi-entity partners: the id of the entity to act for. When omitted, the entity
+        tied to your credentials is used. Requires `API-SECRET-KEY`.
+      schema: {type: string}
+    ApiSecretKey:
+      name: API-SECRET-KEY
+      in: header
+      required: false
+      description: For multi-entity partners, the secret key issued with your credentials. Required when `API-ENTITY-ID` is sent.
+      schema: {type: string}
+    WebhookSignature:
+      name: Signature
+      in: header
+      required: true
+      description: HS256 JWT signed with your webhook secret. See the webhooks guide for the claims.
+      schema: {type: string}
+    ServiceName:
+      name: service_name
+      in: query
+      required: true
+      description: |
+        The service to search for. Common values: `ahc` (health checks), `dental`, `vision`,
+        `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The service must be
+        enabled for your plan. `benefit_type` is accepted as an alias.
+      schema:
+        type: string
+        examples: [ahc, dental, vision, flu_vaccination, covid_vaccination]
+    PackageIdsQuery:
+      name: package_ids
+      in: query
+      required: true
+      description: Comma-separated package ids shared at onboarding.
+      schema: {type: string, pattern: '^[0-9]+(,[0-9]+)*$'}
+      example: '1001,1002'
+    PincodeQuery:
+      name: pincode
+      in: query
+      description: 6-digit Indian pincode. Required unless `latitude` and `longitude` are sent.
+      schema: {type: string, pattern: '^[0-9]{6}$'}
+      example: '500081'
+    LatitudeQuery:
+      name: latitude
+      in: query
+      description: Decimal latitude (must include a decimal point). Required unless `pincode` is sent.
+      schema: {type: number}
+      example: 17.4437
+    LongitudeQuery:
+      name: longitude
+      in: query
+      description: Decimal longitude (must include a decimal point). Required unless `pincode` is sent.
+      schema: {type: number}
+      example: 78.3860
+    PlanIdQuery:
+      name: plan_id
+      in: query
+      description: Plan identifier shared at onboarding. Defaults to the base plan.
+      schema: {type: string}
+    CustomerPlanIdQuery:
+      name: customer_plan_id
+      in: query
+      description: hlthstack's subscription id (from `listCustomerPlans`).
+      schema: {type: integer}
+    SubscriptionIdQuery:
+      name: subscription_id
+      in: query
+      description: Your own subscription id, if sent at enrollment.
+      schema: {type: string}
+    Page:
+      name: page
+      in: query
+      schema: {type: integer, minimum: 1, default: 1}
+    PerPage:
+      name: per_page
+      in: query
+      schema: {type: integer, minimum: 1, maximum: 50, default: 20}
+    SortBy:
+      name: sort_by
+      in: query
+      description: In-clinic consultations only. `visited_before` also needs `api_customer_id`.
+      schema: {type: string, enum: [fee, experience, distance, rating, visited_before]}
+    SortAsc:
+      name: sort_asc
+      in: query
+      description: In-clinic consultations only. Default ascending for fee/distance, descending for experience/rating.
+      schema: {type: boolean}
+    DoctorGender:
+      name: gender
+      in: query
+      description: In-clinic consultations only. Filter doctors by gender.
+      schema: {type: string, enum: [Male, Female, Non-binary]}
+    VisitedBeforeCustomer:
+      name: api_customer_id
+      in: query
+      description: Required with `sort_by=visited_before`.
+      schema: {type: string}
+    BookingIdPath:
+      name: booking_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/BookingId'}
+    AppointmentIdPath:
+      name: appointment_id
+      in: path
+      required: true
+      schema: {$ref: '#/components/schemas/AppointmentId'}
+    OrderIdPath:
+      name: order_id
+      in: path
+      required: true
+      description: The order's `unique_id`.
+      schema: {type: string}
+      example: EPO000000000001
+    CompanySlug:
+      name: company_slug
+      in: path
+      required: true
+      description: Your company slug, shared at onboarding. Must match the entity of the access token.
+      schema: {type: string}
+    CustomerDetailsApiCustomerId:
+      name: customer_details[api_customer_id]
+      in: query
+      required: true
+      description: Your id for the member.
+      schema: {type: string}
+
+  responses:
+    Unauthorized:
+      description: Missing, invalid or expired access token. (Bad entity headers return 400 instead.)
+      content:
+        text/plain:
+          schema: {type: string}
+          example: 'HTTP Token: Access denied.'
+    ValidationError:
+      description: |
+        Invalid parameters. Also returned for invalid `plan_id`, invalid
+        `customer_plan_id`/`subscription_id`, bad `API-ENTITY-ID`/`API-SECRET-KEY`, or an entity
+        not enabled for API booking (`{"message": "..."}`).
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: '#/components/schemas/FieldErrors'
+              - $ref: '#/components/schemas/MessageError'
+          example:
+            errors:
+              service_name: ["can't be blank", is not a valid service_name]
+              package_ids: [should be an integer array]
+    PlanInvalid:
+      description: Invalid `plan_id` or entity headers.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: '#/components/schemas/FieldErrors'
+              - $ref: '#/components/schemas/MessageError'
+          example: {errors: {plan_id: [is invalid]}}
+    ServiceNotEnabled:
+      description: The service is not enabled for your plan.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FieldErrors'}
+          example: {errors: {service_name: [this service is not enabled for you]}}
+    ServerError:
+      description: Internal error.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorMessages'}
+    UnprocessableMessages:
+      description: The request could not be processed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorMessages'}
+    InvalidAppointmentId:
+      description: Malformed appointment id.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FieldErrors'}
+          example: {errors: {appointment_id: [invalid appointment_id]}}
+    NotYourAppointment:
+      description: Appointment not found for your entity.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FieldErrors'}
+          example: {errors: {appointment_id: [invalid appointment_id]}}
+    NotYourBooking:
+      description: Booking not found for your entity.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FieldErrors'}
+          example: {errors: {booking_id: [invalid booking_id]}}
+    DifferentProvider:
+      description: Cannot move to a different provider once confirmed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FieldErrors'}
+          example: {errors: {provider_id: [Appointment cannot be rescheduled to a different provider.]}}
+    InvalidCompanySlug:
+      description: '`company_slug` does not match the authenticated entity.'
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/SimpleError'}
+          example: {error: Invalid company slug for authenticated partner.}
+    CustomerIdRequired:
+      description: Neither `api_customer_id` nor `customer_id` was sent.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/FieldErrors'}
+          example: {errors: {base: [At least one of api_customer_id or customer_id must be provided.]}}
+    Cart:
+      description: The cart.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [success, cart]
+            properties:
+              success: {type: boolean}
+              cart: {$ref: '#/components/schemas/Cart'}
+    ConsultationCreated:
+      description: |
+        Consultation booked. `status: confirmed` is present when the wallet paid in full;
+        `payment_link` is present when the member must pay.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/CreateConsultationResponse'}
+          example:
+            provider_id: 2001
+            booking_id: EKI0000000001700000000
+            customers:
+              - customer_id: EKI000000001
+                name: Jane Doe
+                api_customer_id: CUST1001
+                package_ids: [2001]
+                appointment_id: APT1A2B3C4D5
+                consultation_status: new
+                customer_plan_id: null
+                subscription_id: null
+    ConsultationBookingError:
+      description: Validation error, invalid subscription, or booking failure.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: '#/components/schemas/FieldErrors'
+              - $ref: '#/components/schemas/BookingFailure'
+          example: {errors: {service_mode: ['must be one of audio_call, video_call for specialist_consultation']}}
+    ConsultationBookingConflict:
+      description: Duplicate booking or booking error.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: '#/components/schemas/ErrorMessages'
+              - $ref: '#/components/schemas/BookingFailure'
+          example: {errors: {messages: [customer has an ongoing appointment for same package and provider for same slot]}}
+
+  schemas:
+    # ---------- generic
+    AccessToken:
+      type: object
+      required: [access_token, expires_at]
+      properties:
+        access_token: {type: string}
+        expires_at: {type: string, format: date-time}
+    Message:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+    Messages:
+      type: object
+      required: [messages]
+      properties:
+        messages:
+          type: array
+          items: {type: string}
+    MessageError:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+    SimpleError:
+      type: object
+      required: [error]
+      properties:
+        error: {type: string}
+    FieldErrors:
+      type: object
+      description: Errors keyed by field name. Nested fields are prefixed (e.g. `customer_mobile_number`, `address_pincode`).
+      required: [errors]
+      properties:
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: {type: string}
+    ErrorMessages:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: object
+          required: [messages]
+          properties:
+            messages:
+              type: array
+              items: {type: string}
+    ErrorList:
+      type: object
+      required: [errors]
+      properties:
+        errors:
+          type: array
+          items: {type: string}
+    SuccessFalseMessage:
+      type: object
+      required: [success, message]
+      properties:
+        success: {type: boolean, const: false}
+        message: {type: string}
+    BookingFailure:
+      type: object
+      description: Booking could not be completed. `recall` or `id` may be present.
+      properties:
+        msg: {type: string}
+        recall: {type: boolean}
+        id: {}
+    PartialResult:
+      type: object
+      required: [message]
+      properties:
+        message: {type: string}
+        success:
+          type: string
+          description: Comma-separated appointment ids that succeeded (partial result only).
+        failed:
+          type: string
+          description: Comma-separated appointment ids that failed (partial result only).
+    FileLink:
+      type: [object, 'null']
+      properties:
+        file_name: {type: [string, 'null']}
+        file_url: {type: [string, 'null']}
+
+    BookingId:
+      type: string
+      pattern: '^EKI[0-9A-Z_]{19}$'
+      example: EKI0000000001700000000
+    AppointmentId:
+      type: string
+      pattern: '^APT[0-9A-Z_]{9}$'
+      example: APT1A2B3C4D5
+
+    # ---------- providers & slots
+    ProvidersResponse:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          items: {$ref: '#/components/schemas/Provider'}
+        total_results: {type: integer, description: "In-clinic consultations only."}
+        page: {type: integer, description: "In-clinic consultations only."}
+        min_price: {type: [number, 'null'], description: "Specialist consultations only."}
+        fasting_required: {type: [boolean, 'null']}
+        fasting_alert: {type: [string, 'null']}
+        payment_type: {type: [string, 'null']}
+        additional_info: {type: [object, 'null']}
+        home_collection_available: {type: [boolean, 'null']}
+        home_collection_provider: {type: [object, 'null']}
+        auto_allocate_provider: {type: [boolean, 'null']}
+    Provider:
+      type: object
+      description: A provider. Doctor fields are present for consultation packages. More keys may be present.
+      additionalProperties: true
+      properties:
+        provider_id: {type: integer, description: "Send this when booking or rescheduling."}
+        provider_name: {type: [string, 'null']}
+        locality: {type: [string, 'null']}
+        city: {type: [string, 'null']}
+        state: {type: [string, 'null']}
+        pincode: {type: [string, 'null']}
+        address: {type: [string, 'null']}
+        latitude: {type: [number, 'null']}
+        longitude: {type: [number, 'null']}
+        timezone: {type: string, description: "IANA timezone, e.g. Asia/Kolkata."}
+        timezone_info: {type: [string, 'null']}
+        home_collection_enabled: {type: [boolean, 'null']}
+        serviceable: {type: [boolean, 'null']}
+        is_center_available: {type: [boolean, 'null']}
+        estimated_time: {type: [string, 'null']}
+        estimated_distance: {type: [string, 'null']}
+        distance: {type: [number, 'null']}
+        rating: {type: [number, 'null']}
+        slot_lead_time:
+          type: [integer, 'null']
+          description: Days of notice the provider needs. Used to compute the first bookable date.
+        opening_time: {type: [string, 'null']}
+        closing_time: {type: [string, 'null']}
+        selling_price: {type: [number, string, 'null']}
+        total_mrp: {type: [number, string, 'null']}
+        report_turn_around_time: {}
+        disrupted_dates: {}
+        provider_slots:
+          type: [object, 'null']
+          description: Deprecated. Use `listSlots`.
+          additionalProperties: true
+        doctor_id: {type: string}
+        doctor_name: {type: string}
+        doctor_specialities: {type: array, items: {type: string}}
+        doctor_experience: {type: [integer, 'null']}
+        doctor_qualification: {type: [string, 'null']}
+        doctor_languages: {type: array, items: {type: string}}
+        doctor_fee_details:
+          type: object
+          properties:
+            mrp: {type: [string, number]}
+            selling_price: {type: [string, number]}
+        doctor_availability: {type: [string, 'null'], format: date}
+        doctor_photo:
+          type: [object, 'null']
+          properties:
+            url: {type: [string, 'null']}
+        doctor_gender: {type: [string, 'null']}
+        hospital_name: {type: [string, 'null']}
+        hospital_location: {type: [string, 'null']}
+        next_available_slot: {}
+        visited_before: {type: [boolean, 'null']}
+    Slot:
+      type: object
+      properties:
+        start_time: {type: string, description: 'Local time, HH:MM:SS.'}
+        end_time: {type: string}
+        slot: {type: string}
+        available: {type: boolean}
+        display_text: {type: string}
+        slot_text: {type: string}
+        utc_slot_time:
+          type: string
+          format: date-time
+          description: Send this as `appointment_date_time` when booking.
+        start_time_in_timezone: {type: string, format: date-time}
+        end_time_in_timezone: {type: string, format: date-time}
+        remaining_capacity: {type: [integer, 'null']}
+        partner_slot_id: {}
+        vendor_refs: {type: object}
+    SlotsResponse:
+      type: object
+      properties:
+        booking_slots:
+          type: array
+          items:
+            type: object
+            properties:
+              date: {type: string, format: date}
+              slots:
+                type: array
+                items: {$ref: '#/components/schemas/Slot'}
+        date: {type: string, format: date, description: "First day only."}
+        slots:
+          type: array
+          deprecated: true
+          description: First day only. Use `booking_slots`.
+          items: {$ref: '#/components/schemas/Slot'}
+        report_tat: {}
+        interval: {type: [integer, 'null'], description: "Slot length in seconds."}
+        unavailable_reason: {type: [string, 'null']}
+
+    # ---------- appointments
+    BookingAddress:
+      type: object
+      required: [address_line_one, address_line_two, city, state, country, pincode, latitude, longitude]
+      properties:
+        address_line_one: {type: string, maxLength: 254}
+        address_line_two: {type: string, maxLength: 254}
+        city: {type: string}
+        state: {type: string}
+        country: {type: string, description: "Must be India."}
+        pincode: {type: string, pattern: '^[0-9]{6}$'}
+        latitude: {type: number}
+        longitude: {type: number}
+    BookingCustomer:
+      type: object
+      required: [name, api_customer_id, mobile_number, gender, dob, package_ids]
+      properties:
+        name: {type: string}
+        api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]*$', description: "Your id for the member. Unique within the request."}
+        mobile_number: {type: string, pattern: '^[0-9]{10}$', description: "10 digits without +91."}
+        gender: {type: string, enum: [male, female, non-binary]}
+        dob: {type: string, format: date}
+        package_ids:
+          type: array
+          items: {type: [integer, string]}
+        booking_customer: {type: boolean}
+        vip: {type: boolean}
+        api_partner_order_id: {type: string, description: "Your order reference for this appointment."}
+        service_type: {type: string, description: "Optional per-customer override of `service_name`."}
+    CreateAppointmentRequest:
+      type: object
+      required: [provider_id, appointment_date_time, appointment_type, service_name, customers]
+      properties:
+        provider_id: {type: [integer, string]}
+        appointment_date_time: {type: string, format: date-time, description: "A slot's `utc_slot_time`."}
+        appointment_type: {type: string, enum: [home_collection, inclinic]}
+        service_name: {type: string, examples: [ahc, dental, vision, flu_vaccination, covid_vaccination]}
+        customers:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/BookingCustomer'}
+        address:
+          $ref: '#/components/schemas/BookingAddress'
+          description: Required for home_collection.
+        plan_id: {type: string}
+        customer_plan_id: {type: integer}
+        subscription_id: {type: string}
+        api_partner_order_id: {type: string, description: "Default for customers that do not send their own."}
+    CreateAppointmentResponse:
+      type: object
+      required: [provider_id, booking_id, customers]
+      properties:
+        provider_id: {type: [integer, string]}
+        home_collection_enable: {type: boolean}
+        booking_id: {$ref: '#/components/schemas/BookingId'}
+        status: {type: string, enum: [confirmed, payment_pending]}
+        payment_link: {type: string, format: uri}
+        payment_link_expires_at: {type: string, format: date-time}
+        customers:
+          type: array
+          items:
+            type: object
+            properties:
+              customer_id: {type: integer, description: "hlthstack's internal id for the member."}
+              name: {type: string}
+              api_customer_id: {type: string}
+              package_ids: {type: array, items: {type: [integer, string]}}
+              appointment_id: {$ref: '#/components/schemas/AppointmentId'}
+              customer_plan_id: {type: [integer, 'null']}
+              subscription_id: {type: [string, 'null']}
+    RescheduleAppointmentRequest:
+      type: object
+      required: [appointment_date_time]
+      properties:
+        appointment_date_time: {type: string, format: date-time}
+        provider_id: {type: [integer, string], description: "Only to move to another provider."}
+        address:
+          $ref: '#/components/schemas/BookingAddress'
+          description: Home collection only, with provider_id.
+    AppointmentPaymentDetailsRequest:
+      type: object
+      required: [provider_id, appointment_type, service_name, customers]
+      properties:
+        provider_id: {type: integer}
+        appointment_type: {type: string, enum: [home_collection, inclinic]}
+        service_name: {type: string}
+        plan_id: {type: string}
+        customer_plan_id: {type: integer}
+        subscription_id: {type: string}
+        customers:
+          type: array
+          items:
+            type: object
+            required: [api_customer_id, package_ids]
+            properties:
+              api_customer_id: {type: string}
+              package_ids: {type: array, minItems: 1, items: {type: integer}}
+              booking_customer: {type: boolean}
+    AppointmentPaymentDetailsResponse:
+      type: object
+      properties:
+        payment_details:
+          type: object
+          properties:
+            total_amount: {type: number}
+            sponsor_wallet_amount: {type: number}
+            customer_wallet_amount: {type: number}
+            promotional_wallet_amount: {type: number}
+            razorpay_amount: {type: number, description: "Amount the member pays online."}
+            currency: {type: string}
+    BookingDetails:
+      type: object
+      required: [booking_id, appointments]
+      properties:
+        booking_id: {type: string}
+        service_name: {type: string}
+        appointments:
+          type: array
+          items: {$ref: '#/components/schemas/AppointmentDetails'}
+    AppointmentPayment:
+      type: object
+      properties:
+        status: {type: string}
+        total_collected_amount: {type: [string, number]}
+        razorpay_amount: {type: [string, number]}
+        razorpay_payment_id: {type: [string, 'null']}
+        razorpay_order_id: {type: [string, 'null']}
+        customer_wallet_amount: {type: [string, number]}
+        sponsor_wallet_amount: {type: [string, number]}
+        promotional_wallet_amount: {type: [string, number]}
+        cod_amount: {type: [string, number]}
+        h_points_amount: {type: [string, number]}
+        refunded_amount: {type: [string, number]}
+        captured_at: {type: [string, 'null'], format: date-time}
+        refunded_at: {type: [string, 'null'], format: date-time}
+    AppointmentStatus:
+      type: string
+      description: |
+        Appointment status. Health checkups: `new`, `confirmed`, `rejected`, `noshow`,
+        `cancelled`, `rescheduled`, `completed`, `verification_required`,
+        `partially_received`, `received`. Consultations: `new`, `confirmed`, `rejected`,
+        `noshow`, `cancelled`, `rescheduled`, `completed`, `received`. Treat unknown values
+        gracefully.
+    AppointmentDetails:
+      type: object
+      description: |
+        An appointment or consultation, as returned by `getAppointment` and sent in
+        status webhooks. Conditional keys are omitted when they do not apply.
+      properties:
+        type: {type: string, enum: [status_update, reports_upload]}
+        booking_id: {type: string}
+        appointment_id: {type: string}
+        customer_id: {type: string, description: "hlthstack's customer id."}
+        customer_name: {type: string}
+        mobile_number: {type: [string, 'null']}
+        api_customer_id:
+          type: [string, 'null']
+          description: Null for bookings hlthstack's team made on a member's behalf.
+        member_id: {type: [string, 'null'], description: "Member's employee id, when known."}
+        appointment_date_time: {type: string, format: date-time}
+        event_timestamp: {type: number, description: "Epoch seconds of the status change."}
+        booking_source:
+          type: [string, 'null']
+          description: Channel the booking was made through, fixed at booking time. `hlthstack-api` for bookings made through the hlthstack API hosts.
+        service_type: {type: string, description: "The benefit, e.g. `ahc`, `inclinic_consultation`."}
+        plan_id: {type: [string, 'null']}
+        customer_plan_id: {type: [integer, 'null'], description: "Subscription that paid; null on the base plan."}
+        subscription_id: {type: [string, 'null']}
+        status: {$ref: '#/components/schemas/AppointmentStatus'}
+        status_text: {type: string}
+        comment: {type: [string, 'null']}
+        provider_id: {type: integer}
+        provider_name: {type: [string, 'null']}
+        provider_branch: {type: [string, 'null']}
+        provider_address: {type: [string, 'null']}
+        voucher_api_url:
+          type: string
+          format: uri
+          description: Present once the appointment is confirmed.
+        phlebo_name: {type: string, description: "Present once confirmed, if a phlebotomist is assigned."}
+        phlebo_number: {type: string}
+        reports:
+          type: array
+          items: {type: string, format: uri}
+          description: Present in `partially_received` and `received`.
+        doctor_id: {type: string}
+        doctor_name: {type: string}
+        doctor_specialities: {type: array, items: {type: string}}
+        doctor_gender: {type: [string, 'null']}
+        doctor_qualification: {type: [string, 'null']}
+        doctor_languages: {type: array, items: {type: string}}
+        doctor_experience: {type: [integer, 'null']}
+        summary: {$ref: '#/components/schemas/FileLink'}
+        doctor_prescriptions:
+          type: array
+          items: {$ref: '#/components/schemas/FileLink'}
+        latitude: {type: [number, string, 'null']}
+        longitude: {type: [number, string, 'null']}
+        hospital_name: {type: [string, 'null']}
+        hospital_location: {type: [string, 'null']}
+        hospital_address: {type: [string, 'null']}
+        meeting_link: {type: [string, 'null'], description: "Video consultations only."}
+        payment: {$ref: '#/components/schemas/AppointmentPayment'}
+    LabResultsPayload:
+      type: object
+      properties:
+        type: {type: string, const: lab_results}
+        booking_id: {type: string}
+        appointment_id: {type: string}
+        customer_id: {type: string}
+        api_customer_id: {type: [string, 'null']}
+        member_id: {type: [string, 'null']}
+        plan_id: {type: [string, 'null']}
+        digitization:
+          type: object
+          properties:
+            results:
+              type: array
+              items:
+                type: object
+                properties:
+                  result: {type: [string, 'null']}
+                  units: {type: [string, 'null']}
+                  ranges: {type: [string, 'null']}
+                  test_component_id: {type: integer}
+                  test_component_name: {type: string}
+                  lab_test_id: {type: integer}
+                  lab_test_name: {type: string}
+            notes:
+              type: array
+              items:
+                type: object
+                properties:
+                  title: {type: string}
+                  description: {type: string}
+      example:
+        type: lab_results
+        booking_id: EKI0000000001700000000
+        appointment_id: APT1A2B3C4D5
+        customer_id: EKI000000001
+        api_customer_id: CUST1001
+        member_id: null
+        plan_id: EXAMPLE_PLAN
+        digitization:
+          results:
+            - {result: '80', units: mg/dL, ranges: '<70,70-140,>140', test_component_id: 1, test_component_name: Fasting Blood Sugar, lab_test_id: 1, lab_test_name: Blood Glucose}
+
+    # ---------- consultations
+    ConsultationCustomer:
+      type: object
+      required: [name, api_customer_id, mobile_number, gender, dob, package_ids]
+      properties:
+        name: {type: string}
+        api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]*$'}
+        mobile_number: {type: string, pattern: '^[0-9]{10}$'}
+        gender: {type: string, enum: [male, female, non-binary]}
+        dob: {type: string, format: date}
+        package_ids: {type: array, items: {type: [integer, string]}}
+    CreateInclinicConsultationRequest:
+      type: object
+      required: [provider_id, appointment_date_time, customers, address]
+      properties:
+        appointment_date_time: {type: string, format: date-time}
+        service_mode: {type: string, enum: [at_provider_location]}
+        provider_id: {type: [integer, string]}
+        customers:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConsultationCustomer'}
+        address: {$ref: '#/components/schemas/BookingAddress'}
+        plan_id: {type: string}
+        customer_plan_id: {type: integer}
+        subscription_id: {type: string}
+    CreateSpecialistConsultationRequest:
+      type: object
+      required: [provider_id, customers]
+      properties:
+        appointment_date_time:
+          type: string
+          format: date-time
+          description: Required unless `priority_consultation` is true.
+        service_mode: {type: string, enum: [audio_call, video_call]}
+        priority_consultation: {type: boolean, default: false}
+        provider_id: {type: [integer, string]}
+        customers:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/ConsultationCustomer'}
+        plan_id: {type: string}
+        customer_plan_id: {type: integer}
+        subscription_id: {type: string}
+    CreateConsultationResponse:
+      type: object
+      required: [provider_id, booking_id, customers]
+      properties:
+        provider_id: {type: [integer, string]}
+        booking_id: {type: string}
+        status: {type: string, enum: [confirmed]}
+        payment_link: {type: string, format: uri}
+        payment_link_expires_at: {type: string, format: date-time}
+        customers:
+          type: array
+          items:
+            type: object
+            properties:
+              customer_id: {type: string}
+              name: {type: string}
+              api_customer_id: {type: string}
+              package_ids: {type: array, items: {type: [integer, string]}}
+              appointment_id: {type: string}
+              consultation_status: {type: string}
+              customer_plan_id: {type: [integer, 'null']}
+              subscription_id: {type: [string, 'null']}
+    ConsultationDetails:
+      type: object
+      properties:
+        booking_id: {type: string}
+        appointment_id: {type: string}
+        appointment_date_time: {type: string, format: date-time}
+        status: {$ref: '#/components/schemas/AppointmentStatus'}
+        service_name: {type: string}
+        service_mode: {type: string}
+        api_customer_id: {type: [string, 'null']}
+        customer_id: {type: string}
+        doctor_id: {type: [string, 'null']}
+        doctor_name: {type: [string, 'null']}
+        doctor_specialities: {type: [array, 'null'], items: {type: string}}
+        doctor_gender: {type: [string, 'null']}
+        doctor_qualification: {type: [string, 'null']}
+        doctor_languages: {type: [array, 'null'], items: {type: string}}
+        doctor_experience: {type: integer}
+        provider_id: {type: integer}
+        is_priority_consultation: {type: boolean}
+        is_default_provider: {type: boolean, description: "True while a priority consultation has no doctor assigned yet."}
+        latitude: {type: [number, string, 'null'], description: "In-clinic only."}
+        longitude: {type: [number, string, 'null'], description: "In-clinic only."}
+        hospital_name: {type: [string, 'null'], description: "In-clinic only."}
+        hospital_location: {type: [string, 'null'], description: "In-clinic only."}
+        hospital_address: {type: [string, 'null'], description: "In-clinic only."}
+        summary: {$ref: '#/components/schemas/FileLink'}
+        prescriptions:
+          type: array
+          description: Online consultations only.
+          items: {$ref: '#/components/schemas/FileLink'}
+        meeting_link: {type: [string, 'null'], description: "Video consultations only."}
+
+    # ---------- ePharmacy
+    CustomerDetailsRef:
+      type: object
+      required: [api_customer_id]
+      properties:
+        api_customer_id: {type: string}
+    MedicineSearchResponse:
+      type: object
+      properties:
+        medicines:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              name: {type: string}
+              composition_with_strength: {type: [string, 'null']}
+              manufacturer_name: {type: [string, 'null']}
+              packing_label: {type: [string, 'null']}
+              mrp: {type: [number, 'null']}
+              available: {type: boolean}
+              type: {type: [string, 'null']}
+              rx_required: {type: boolean}
+        meta:
+          type: object
+          properties:
+            page: {type: integer}
+    DigitizationAccepted:
+      type: object
+      properties:
+        request_id: {type: string}
+        digitization_id: {type: string}
+        status: {type: string}
+        message: {type: string}
+    DigitizationStatus:
+      type: object
+      required: [request_id, status]
+      properties:
+        request_id: {type: string}
+        status: {type: string, enum: [pending, ai_processing, manual_review, completed, partial, rejected, failed]}
+        api_customer_id: {type: string}
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              url: {type: string, format: uri}
+        message: {type: string}
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            properties:
+              medicine_id: {type: integer}
+              name: {type: string}
+              quantity: {type: integer}
+        cart_id: {type: [integer, 'null']}
+        error: {type: [string, 'null'], description: '`rejected` and `failed` only.'}
+    CartProduct:
+      type: object
+      additionalProperties: true
+      properties:
+        id: {type: integer}
+        name: {type: string}
+        type: {type: [string, 'null']}
+        quantity: {type: integer}
+        mrp: {type: [string, number]}
+        discount_price: {type: [number, 'null']}
+        discount_percent: {type: [string, 'null']}
+        rx_required: {type: boolean}
+        is_available: {type: boolean}
+        is_banned: {type: boolean}
+        pack_size_label: {type: [string, 'null']}
+        limit_per_order: {type: [integer, 'null']}
+        min_limit_per_order: {type: [integer, 'null']}
+        image: {type: [string, 'null']}
+    Cart:
+      type: object
+      properties:
+        id: {type: integer}
+        api_customer_id: {type: string}
+        plan_id: {type: [string, 'null']}
+        products:
+          type: array
+          items: {$ref: '#/components/schemas/CartProduct'}
+        prescription_ids: {type: array, items: {type: integer}}
+        prescriptions:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              url: {type: string, description: "Pre-signed; expires after 5 minutes."}
+              name: {type: string}
+              status: {type: string}
+        address_id: {type: [integer, 'null']}
+        city: {type: [string, 'null']}
+        zip_code: {type: [string, 'null']}
+        coupon_code: {type: [string, 'null']}
+        doctor_call_required: {type: [boolean, 'null']}
+        fulfillment_type: {type: [string, 'null'], enum: [delivery, store_pickup, null]}
+        selected_store_data: {type: object}
+        eta: {}
+    PharmacyAddressInput:
+      type: object
+      required: [line1, city, state, pincode]
+      properties:
+        line1: {type: string}
+        line2: {type: string}
+        city: {type: string}
+        state: {type: string}
+        pincode: {type: string, description: "Alias of zip_code."}
+        country: {type: string, default: India}
+        land_mark: {type: string}
+        latitude: {type: number, description: "Optional; improves store-pickup ranking."}
+        longitude: {type: number}
+    UpdateCartRequest:
+      type: object
+      required: [customer_details]
+      properties:
+        plan_id: {type: string}
+        customer_details:
+          type: object
+          required: [api_customer_id]
+          properties:
+            api_customer_id: {type: string}
+            name: {type: string}
+            dob: {type: string}
+            mobile_number: {type: string}
+            gender: {type: string}
+        products:
+          type: array
+          items:
+            type: object
+            required: [id, quantity]
+            properties:
+              id: {type: integer, description: "Medicine id from `searchMedicines`."}
+              quantity: {type: integer, minimum: 0, description: "0 removes the line."}
+        address: {$ref: '#/components/schemas/PharmacyAddressInput'}
+        address_id: {type: integer, description: "Mutually exclusive with `address`."}
+        fulfillment_type: {type: string, enum: [delivery, store_pickup]}
+        selected_chemist_id: {type: string, description: "Store id; required for store_pickup."}
+        medicine_vendor_id: {type: integer}
+        prescription_urls:
+          type: array
+          maxItems: 5
+          description: Public HTTPS URLs (port 443) to PDF/PNG/JPEG files under 7 MB.
+          items: {type: string, format: uri}
+        remove_prescription_ids:
+          type: array
+          items: {type: integer}
+    FulfillmentOption:
+      type: object
+      additionalProperties: true
+      properties:
+        vendor_id: {type: integer, description: "Pass as `medicine_vendor_id`."}
+        mrp: {type: number}
+        selling_price: {type: number}
+        additional_charges: {type: number}
+        express_premium: {type: number}
+        total_payable: {type: number}
+        discount_price: {type: number}
+        delivery_details: {type: object, additionalProperties: true}
+        products: {type: array, items: {type: object, additionalProperties: true}}
+        missing_products:
+          type: array
+          description: Items no pharmacy can supply for this mode.
+          items: {type: object, additionalProperties: true}
+        location_token: {type: string, description: "Pass to `createOrder` if the member picks this option."}
+    FulfillmentOptions:
+      type: object
+      properties:
+        success: {type: boolean}
+        delivery_options:
+          type: object
+          properties:
+            success: {type: boolean}
+            location_not_servicable: {type: boolean}
+            message: {type: string}
+            express: {$ref: '#/components/schemas/FulfillmentOption'}
+            standard: {$ref: '#/components/schemas/FulfillmentOption'}
+        pickup_options:
+          type: object
+          additionalProperties: true
+          properties:
+            success: {type: boolean}
+            starting_from: {type: number}
+            vendors:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+                properties:
+                  success: {type: boolean}
+                  vendor_id: {type: integer}
+                  stores:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                      properties:
+                        id: {type: string, description: "Send as `selected_chemist_id`."}
+                        name: {type: string}
+                        address: {type: string}
+                        latitude: {type: [string, number]}
+                        longitude: {type: [string, number]}
+                        display_eta: {type: string}
+                        distance: {type: number}
+                        location_token: {type: string}
+    OrderPaymentDetailsRequest:
+      type: object
+      required: [customer_details, cart_id, selected_delivery_option]
+      properties:
+        plan_id: {type: string}
+        customer_details: {$ref: '#/components/schemas/CustomerDetailsRef'}
+        cart_id: {type: integer}
+        selected_delivery_option: {type: string, enum: [express, standard, store_pickup]}
+        selected_chemist_id: {type: string, description: "Required for store_pickup; must match the cart's store."}
+        medicine_vendor_id: {type: integer, description: "The option's `vendor_id`."}
+        customer_plan_id: {type: integer}
+        subscription_id: {type: string}
+    OrderPaymentDetails:
+      type: object
+      properties:
+        products:
+          type: array
+          items: {type: object, additionalProperties: true}
+        payment_details:
+          type: object
+          properties:
+            total_mrp: {type: number}
+            sub_total: {type: number}
+            discount: {type: number}
+            shipping_charge: {type: number}
+            free_shipping: {type: boolean}
+            total_amount: {type: number, description: "Order value."}
+            wallet_deduction: {type: number}
+            spending_balance_deduction: {type: number}
+            total_payable: {type: number, description: "What the member still owes."}
+            partner_payment_required: {type: boolean, description: "Partner-collected flow only."}
+            amount_to_collect: {type: number, description: "Partner-collected flow only."}
+        estimated_time: {type: [string, 'null']}
+        fulfillment: {type: object, additionalProperties: true}
+        address: {type: object, additionalProperties: true}
+    CreateOrderRequest:
+      type: object
+      required: [customer_details, cart_id]
+      properties:
+        plan_id: {type: string}
+        customer_details: {$ref: '#/components/schemas/CustomerDetailsRef'}
+        cart_id: {type: integer}
+        delivery_option: {type: string, enum: [express, standard, store_pickup], default: standard}
+        delivery_type: {type: string, enum: [delivery, pickup], description: "Defaults from the cart's fulfillment_type."}
+        location_token: {type: string, description: "Token of the chosen option from `getFulfillmentOptions`."}
+        medicine_vendor_id: {type: integer}
+        coupon_code: {type: string}
+        customer_plan_id: {type: integer}
+        subscription_id: {type: string}
+    CreateOrderResponse:
+      type: object
+      required: [success, status, booking_id]
+      properties:
+        success: {type: boolean}
+        status: {type: string, enum: [confirmed, payment_pending, partner_payment_pending]}
+        booking_id: {type: integer}
+        order_id: {type: string, description: "partner_payment_pending only."}
+        payment_link: {type: string, format: uri, description: "payment_pending only."}
+        amount_to_collect: {type: number, description: "partner_payment_pending only."}
+        currency: {type: string}
+        user_prescription_details: {$ref: '#/components/schemas/Order'}
+    OrderFailure:
+      type: object
+      properties:
+        success: {type: boolean, const: false}
+        errors:
+          type: object
+          properties:
+            msg: {type: string}
+            recall: {type: boolean}
+    ConfirmOrderError:
+      type: object
+      properties:
+        success: {type: boolean, const: false}
+        status: {type: string, enum: [transaction_locked, invalid_payment]}
+        errors:
+          anyOf:
+            - type: array
+              items: {type: string}
+            - type: object
+              properties:
+                base: {type: string}
+    PharmacyOrderStatus:
+      type: string
+      description: |
+        Order status. Match on this, not on `status_text`. Known values: `received`,
+        `abandoned`, `failed`, `consultation_required`, `prescription_under_verification`,
+        `verification_pending`, `onhold`, `verified`, `prescription_rejected`,
+        `prescription_cancelled`, `ops_rejected`, `created`, `in_progress`, `processed`,
+        `packing`, `packed`, `invoice_generated`, `in_transit`, `in_delivery`,
+        `out_for_delivery`, `delivery_postponed`, `delivered`, `cancellation_request`,
+        `cancellation_inprogress`, `cancelled`, `rejected`, `out_of_stock`, `returned`,
+        `returned_and_refunded`. New values may be added.
+    OrderItem:
+      type: object
+      additionalProperties: true
+      properties:
+        id: {type: [integer, string]}
+        product_id: {type: [string, 'null']}
+        name: {type: string}
+        quantity: {type: integer}
+        mrp: {type: number}
+        offered_price: {type: number}
+        selling_price: {type: number}
+        discounted_price: {type: number}
+    Order:
+      type: object
+      additionalProperties: true
+      properties:
+        unique_id: {type: string}
+        status: {$ref: '#/components/schemas/PharmacyOrderStatus'}
+        status_text: {type: [string, 'null']}
+        status_description: {type: [string, 'null']}
+        partner_status: {type: [string, 'null']}
+        created_at: {type: string, format: date-time}
+        otp: {type: [string, 'null']}
+        vendor_name: {type: [string, 'null']}
+        order_type: {type: [string, 'null']}
+        api_customer_id: {type: [string, 'null']}
+        tracking_number: {type: [string, 'null']}
+        tracking_url: {type: [string, 'null']}
+        tracking_partner: {type: [string, 'null']}
+        eta_from: {type: [string, 'null']}
+        eta_to: {type: [string, 'null']}
+        invoice_url: {type: [string, 'null']}
+        payment_details: {type: object, additionalProperties: true}
+        products: {type: array, items: {$ref: '#/components/schemas/OrderItem'}}
+        address: {type: object, additionalProperties: true}
+        prescriptions: {type: array, items: {type: string}}
+        split_details: {$ref: '#/components/schemas/SplitDetails'}
+    SplitDetails:
+      type: [object, 'null']
+      properties:
+        is_splitted: {type: boolean}
+        parent_order: {}
+        sub_orders:
+          type: array
+          items: {type: object, additionalProperties: true}
+    ShipmentDetails:
+      type: object
+      properties:
+        delivery_type: {type: [string, 'null'], enum: [store_pickup, express, standard, null]}
+        otp: {type: [string, 'null']}
+        tracking_partner: {type: [string, 'null']}
+        tracking_number: {type: [string, 'null']}
+        tracking_url: {type: [string, 'null']}
+        eta_from: {type: [string, 'null']}
+        eta_to: {type: [string, 'null']}
+        store_details: {type: [object, 'null']}
+    PharmacyPayment:
+      type: object
+      additionalProperties: true
+      properties:
+        status: {type: string}
+        razorpay_amount: {type: number}
+        razorpay_payment_id: {type: [string, 'null']}
+        razorpay_order_id: {type: [string, 'null']}
+        sponsor_wallet_amount: {type: number}
+        customer_wallet_amount: {type: number}
+        promotional_wallet_amount: {type: number}
+        h_points_amount: {type: number}
+        refunded_amount: {type: number}
+        total_collected_amount: {type: number}
+        captured_at: {type: [string, 'null']}
+        refunded_at: {type: [string, 'null']}
+        partner_collected: {type: boolean}
+        partner_collected_amount: {type: number}
+        additional_collected_amount: {type: number}
+        partner_payment_reference: {type: [string, 'null']}
+    PharmacyOrderWebhook:
+      type: object
+      properties:
+        type: {type: string, const: status_update}
+        order_id: {type: string}
+        customer_id: {type: string}
+        api_customer_id: {type: [string, 'null']}
+        member_id: {type: [string, 'null']}
+        ordered_for_name: {type: [string, 'null']}
+        mobile_number: {type: [string, 'null']}
+        order_type: {type: [string, 'null']}
+        vendor_name: {type: [string, 'null']}
+        service_type: {type: string, const: pharmacy}
+        plan_id: {type: [string, 'null']}
+        customer_plan_id: {type: [integer, 'null']}
+        subscription_id: {type: [string, 'null']}
+        status: {$ref: '#/components/schemas/PharmacyOrderStatus'}
+        status_text: {type: [string, 'null']}
+        status_description: {type: [string, 'null']}
+        partner_status: {type: [string, 'null']}
+        order_items: {type: array, items: {$ref: '#/components/schemas/OrderItem'}}
+        total_amount: {type: number}
+        total_selling_price: {type: number}
+        total_discount: {type: number}
+        sub_total: {type: number, description: "Partner-collected only."}
+        additional_charge: {type: number, description: "Partner-collected only."}
+        total_payable: {type: number, description: "Partner-collected only."}
+        tracking_url: {type: [string, 'null']}
+        tracking_partner: {type: [string, 'null']}
+        tracking_number: {type: [string, 'null']}
+        eta_from: {type: [string, 'null']}
+        eta_to: {type: [string, 'null']}
+        shipment_details: {$ref: '#/components/schemas/ShipmentDetails'}
+        address: {type: string, description: "Present when the order has an address."}
+        city: {type: string}
+        pincode: {type: string}
+        state: {type: string}
+        split_details: {$ref: '#/components/schemas/SplitDetails'}
+        payment: {$ref: '#/components/schemas/PharmacyPayment'}
+      example:
+        type: status_update
+        order_id: EPO000000000001
+        customer_id: EKI000000001
+        api_customer_id: CUST1001
+        ordered_for_name: Jane Doe
+        mobile_number: '9999999999'
+        order_type: cart_order
+        vendor_name: Example Pharmacy
+        service_type: pharmacy
+        plan_id: EXAMPLE_PLAN
+        status: out_for_delivery
+        status_text: Order out for delivery
+        order_items:
+          - {id: 50001, product_id: SKU-1, name: Example 500 Tablet, quantity: 2, mrp: 50.0, offered_price: 45.0}
+        total_amount: 95.0
+        total_selling_price: 90.0
+        total_discount: 5.0
+        shipment_details: {delivery_type: standard, otp: '1234', tracking_partner: Example Courier, tracking_number: TRK1, tracking_url: 'https://track.example.com/TRK1', eta_from: null, eta_to: null, store_details: null}
+        address: 1 Example Road, Motera, Ahmedabad, Gujarat, 380005
+        city: Ahmedabad
+        pincode: '380005'
+        state: Gujarat
+        split_details: {is_splitted: false, parent_order: null, sub_orders: []}
+    PharmacyPostBillingWebhook:
+      allOf:
+        - $ref: '#/components/schemas/PharmacyOrderWebhook'
+        - type: object
+          properties:
+            type: {type: string, const: post_billing}
+            settlement:
+              type: object
+              properties:
+                original_collected_amount: {type: number}
+                additional_collected_amount: {type: number}
+                total_collected_amount: {type: number}
+                final_amount: {type: number, description: "Authoritative delivered value."}
+                adjustment_amount: {type: number, description: "total_collected_amount - final_amount; refund this to the member."}
+                settled_at: {type: string, format: date-time}
+                orders:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      order_id: {type: string}
+                      status: {type: string}
+                      selling_price: {type: number}
+    PharmacyAdditionalPaymentWebhook:
+      allOf:
+        - $ref: '#/components/schemas/PharmacyOrderWebhook'
+        - type: object
+          properties:
+            type: {type: string, const: additional_payment_required}
+            additional_payment:
+              type: object
+              properties:
+                order_id: {type: string, description: "The pharmacy's order reference (may be a split child)."}
+                amount_payable: {type: number, description: "Amount to collect for that order."}
+                partner_collected_amount: {type: number}
+                additional_collected_amount: {type: number, description: "Running total across the order tree."}
+                signalled_at: {type: string, format: date-time}
+    PrescriptionDigitizedWebhook:
+      type: object
+      properties:
+        type: {type: string, const: digitization_results}
+        event_type: {type: string, const: pharmacy.prescription.digitized}
+        request_id: {type: string}
+        status: {type: string, enum: [completed, partial, rejected, failed]}
+        customer_id: {type: string}
+        api_customer_id: {type: [string, 'null']}
+        member_id: {type: [string, 'null']}
+        plan_id: {type: [string, 'null']}
+        items: {type: [array, 'null'], items: {type: object, additionalProperties: true}}
+        reviewed_items: {type: [array, 'null'], items: {type: object, additionalProperties: true}}
+        cart_id: {type: [integer, 'null']}
+        documents:
+          type: array
+          items:
+            type: object
+            properties:
+              id: {type: integer}
+              url: {type: string}
+              type: {type: string, enum: [pdf, image]}
+              name: {type: string}
+        comment: {type: [string, 'null']}
+
+    # ---------- wallet
+    WalletBenefit:
+      type: object
+      properties:
+        benefit_type: {type: string}
+        allocated_benefit_amount: {type: number}
+        available_benefit_amount: {type: number, minimum: 0}
+        allocated_benefit_utilization_count: {type: integer}
+        current_benefit_utilization_count: {type: integer}
+    WalletResponse:
+      type: object
+      properties:
+        status: {type: string, const: success}
+        data:
+          type: object
+          properties:
+            customer_plan_id: {type: integer, description: "Present when a subscription was named."}
+            subscription_id: {type: [string, 'null']}
+            members:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: {type: string}
+                  gender: {type: [string, 'null']}
+                  dob: {type: [string, 'null'], format: date}
+                  phone: {type: [string, 'null']}
+                  email: {type: [string, 'null']}
+                  relationship: {type: string, description: "Uppercase, e.g. SELF, SPOUSE."}
+                  relation: {type: string, description: "Lowercase, e.g. self, spouse."}
+                  member_status: {type: string, enum: [ACTIVE, INACTIVE]}
+                  wallet_details:
+                    type: object
+                    properties:
+                      benefits: {type: array, items: {$ref: '#/components/schemas/WalletBenefit'}}
+                      total_allocated_amount: {type: number}
+                      available_amount: {type: number}
+    CustomerPlansResponse:
+      type: object
+      properties:
+        status: {type: string, const: success}
+        data:
+          type: object
+          properties:
+            customer_plans:
+              type: array
+              items:
+                type: object
+                properties:
+                  customer_plan_id: {type: integer}
+                  subscription_id: {type: [string, 'null']}
+                  plan_id: {type: string}
+                  plan_name: {type: string}
+                  start_date: {type: string, format: date}
+                  end_date: {type: [string, 'null'], format: date}
+                  grace_end_date: {type: [string, 'null'], format: date}
+                  status: {type: string, enum: [active, upcoming, grace]}
+                  available_balance: {type: number}

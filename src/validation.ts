@@ -61,7 +61,8 @@ interface RuleBase {
 
 export type Rule = RuleBase &
   (
-    | { rule: 'at_least_one_of' | 'mutually_exclusive' | 'positive_decimal' | 'unique_by' }
+    | { rule: 'at_least_one_of'; groups?: readonly (readonly string[])[] }
+    | { rule: 'mutually_exclusive' | 'positive_decimal' | 'unique_by' }
     | { rule: 'required_if'; required: readonly string[]; when: Condition }
     | { rule: 'allowed_only_if'; allowed: readonly string[]; when: Condition }
     | {
@@ -451,7 +452,10 @@ function applyRule(rule: Rule, root: Record<string, unknown>, issues: Validation
 
     case 'at_least_one_of':
       for (const { path, value, keys } of containers(root, rule.fields)) {
-        if (keys.every((k) => blank(value[k]))) add(path, `send at least one of ${keys.join(', ')}`);
+        const groups = rule.groups ?? keys.map((k) => [k]);
+        if (groups.every((group) => group.some((k) => blank(value[k])))) {
+          add(path, `send at least one of ${groups.map((group) => group.join(' with ')).join(', ')}`);
+        }
       }
       return;
 

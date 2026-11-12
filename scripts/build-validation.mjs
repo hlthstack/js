@@ -194,7 +194,7 @@ function literal(value) {
 
 /** Turns one `x-hlthstack-rules` entry into a structured rule. */
 function parseRule(entry, where, schemas, bodyProperties) {
-  const { rule, description, fields: rawFields } = entry;
+  const { rule, description, fields: rawFields, groups: rawGroups } = entry;
   if (!RULE_KINDS.has(rule)) fail(where, `rule "${rule}" is not defined in x-hlthstack-rule-kinds`);
   if (!Array.isArray(rawFields) || rawFields.length === 0) fail(where, 'rule has no fields');
   const fields = rawFields.map(normalizeField);
@@ -205,7 +205,13 @@ function parseRule(entry, where, schemas, bodyProperties) {
   const unknown = (what = 'description') => fail(where, `cannot interpret ${rule} ${what}: "${description}"`);
   let m;
   switch (rule) {
-    case 'at_least_one_of':
+    case 'at_least_one_of': {
+      if (rawGroups === undefined) return base;
+      // Each group is satisfied when all its fields are sent; the rule holds when any group is.
+      const groups = rawGroups.map((group) => group.map(normalizeField));
+      if (groups.flat().some((field) => !fields.includes(field))) unknown('groups');
+      return { ...base, groups: groups.map((group) => group.map((f) => f.slice(f.lastIndexOf('.') + 1))) };
+    }
     case 'mutually_exclusive':
     case 'positive_decimal':
       return base;

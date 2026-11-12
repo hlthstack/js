@@ -2905,7 +2905,17 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
         "description": "Each dependant needs guardian_email, or company_id together with guardian_employee_code.",
         "fields": [
           "dependants[].guardian_email",
+          "dependants[].company_id",
           "dependants[].guardian_employee_code"
+        ],
+        "groups": [
+          [
+            "guardian_email"
+          ],
+          [
+            "company_id",
+            "guardian_employee_code"
+          ]
         ]
       },
       {
@@ -3154,7 +3164,17 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
         "description": "Each employee needs email, or company_id together with employee_code.",
         "fields": [
           "employees[].email",
+          "employees[].company_id",
           "employees[].employee_code"
+        ],
+        "groups": [
+          [
+            "email"
+          ],
+          [
+            "company_id",
+            "employee_code"
+          ]
         ]
       },
       {

@@ -290,6 +290,26 @@ describe('x-hlthstack-rules', () => {
     expect(issues('updateCart', { body: { ...cart, address: { ...(cart.address as object), zip_code: '380005' } } })).toEqual([]);
   });
 
+  it('at_least_one_of with groups: every field of one group must be sent', () => {
+    const dependant = { first_name: 'John', last_name: 'Doe', date_of_birth: '', gender: '', mobile_number: '', relation: '' };
+    const create = (extra: Record<string, unknown>) =>
+      issues('createPreRegistrations', { body: { employees: [], dependants: [{ ...dependant, ...extra }] } })
+        .filter((i) => i.rule === 'at_least_one_of');
+    expect(create({ guardian_employee_code: 'EMP1001' })).toEqual([
+      {
+        path: 'dependants[0]',
+        rule: 'at_least_one_of',
+        message: 'send at least one of guardian_email, company_id with guardian_employee_code',
+      },
+    ]);
+    expect(create({ company_id: 1001, guardian_employee_code: 'EMP1001' })).toEqual([]);
+    expect(create({ guardian_email: 'jane@example.com' })).toEqual([]);
+    const update = (employee: Record<string, unknown>) =>
+      problems('updatePreRegistrations', { body: { employees: [employee] } }).filter((p) => p.endsWith('at_least_one_of'));
+    expect(update({ employee_code: 'EMP1001' })).toEqual(['employees[0] at_least_one_of']);
+    expect(update({ company_id: 1001, employee_code: 'EMP1001' })).toEqual([]);
+  });
+
   it('mutually_exclusive', () => {
     const cart = { ...bodyExample('updateCart', 'address'), address_id: 12 };
     expect(issues('updateCart', { body: cart })).toEqual([

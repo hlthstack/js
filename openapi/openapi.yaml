@@ -47,7 +47,7 @@ security:
   - bearerAuth: []
 x-hlthstack-rule-kinds:
   required_if: The listed fields are required when the condition in the description holds.
-  at_least_one_of: At least one of the listed fields must be present and non-blank.
+  at_least_one_of: At least one of the listed fields must be present and non-blank. When the rule has `groups`, every field of at least one group must be present and non-blank.
   mutually_exclusive: At most one of the listed fields may be sent.
   allowed_only_if: The listed fields may be sent only when the condition in the description holds.
   unique_by: No two array items may share the listed field's value (compared as strings).
@@ -2515,7 +2515,8 @@ paths:
           fields: ['employees[].email', 'employees[].employee_code']
         - rule: at_least_one_of
           description: Each dependant needs guardian_email, or company_id together with guardian_employee_code.
-          fields: ['dependants[].guardian_email', 'dependants[].guardian_employee_code']
+          fields: ['dependants[].guardian_email', 'dependants[].company_id', 'dependants[].guardian_employee_code']
+          groups: [['dependants[].guardian_email'], ['dependants[].company_id', 'dependants[].guardian_employee_code']]
         - rule: relative_date
           description: date_of_birth (when not blank) must not be after today.
           fields: ['employees[].date_of_birth', 'dependants[].date_of_birth']
@@ -2589,7 +2590,8 @@ paths:
           fields: [employees, dependants]
         - rule: at_least_one_of
           description: Each employee needs email, or company_id together with employee_code.
-          fields: ['employees[].email', 'employees[].employee_code']
+          fields: ['employees[].email', 'employees[].company_id', 'employees[].employee_code']
+          groups: [['employees[].email'], ['employees[].company_id', 'employees[].employee_code']]
         - rule: at_least_one_of
           description: Each dependant needs api_customer_id, dependent_code or mobile_number.
           fields: ['dependants[].api_customer_id', 'dependants[].dependent_code', 'dependants[].mobile_number']

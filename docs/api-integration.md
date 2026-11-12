@@ -265,8 +265,7 @@ const appointmentId = booking.customers[0].appointment_id;
 
 `status: "confirmed"` means the wallet paid; the appointment itself starts at `new` until the
 provider confirms it (you get a webhook). Optional fields: `plan_id`, `customer_plan_id` /
-`subscription_id`, `api_partner_order_id`. To get a price first, call
-`POST /api/appointments/payment_details`.
+`subscription_id`, `api_partner_order_id`.
 
 ### 4. Get the booking
 

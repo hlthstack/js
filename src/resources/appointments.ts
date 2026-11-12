@@ -1,15 +1,11 @@
 import { path, type RequestOptions, type Transport } from '../core.js';
 import type {
-  AppointmentPaymentDetailsParams,
-  AppointmentPaymentDetailsResponse,
   AppointmentReportsResponse,
   BookingDetails,
   CreateAppointmentParams,
   CreateAppointmentResponse,
   GetAppointmentParams,
   LabResults,
-  ListCustomerAppointmentsParams,
-  ListCustomerAppointmentsResponse,
   ListProvidersParams,
   ListSlotsParams,
   Message,
@@ -61,38 +57,6 @@ export class Appointments {
   /** `GET /api/appointments` (getAppointment). Pass `booking_id`, and optionally `appointment_id`. */
   get(params: GetAppointmentParams, options?: RequestOptions): Promise<BookingDetails> {
     return this.transport.request({ operation: 'getAppointment', method: 'GET', path: '/api/appointments', query: params }, options);
-  }
-
-  /** `GET /api/appointments/customer_appointments` (listCustomerAppointments). Up to 50, newest first. */
-  listForCustomer(
-    params: ListCustomerAppointmentsParams,
-    options?: RequestOptions,
-  ): Promise<ListCustomerAppointmentsResponse> {
-    return this.transport.request(
-      {
-        operation: 'listCustomerAppointments',
-        method: 'GET',
-        path: '/api/appointments/customer_appointments',
-        query: params,
-      },
-      options,
-    );
-  }
-
-  /** `POST /api/appointments/payment_details` (getAppointmentPaymentDetails). Quotes without booking. */
-  getPaymentDetails(
-    params: AppointmentPaymentDetailsParams,
-    options?: RequestOptions,
-  ): Promise<AppointmentPaymentDetailsResponse> {
-    return this.transport.request(
-      {
-        operation: 'getAppointmentPaymentDetails',
-        method: 'POST',
-        path: '/api/appointments/payment_details',
-        body: params,
-      },
-      options,
-    );
   }
 
   /** `PATCH /api/bookings/{booking_id}/reschedule` (rescheduleBooking). May partially succeed. */

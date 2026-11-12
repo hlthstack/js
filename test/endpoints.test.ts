@@ -85,13 +85,6 @@ describe('appointments', () => {
       appointment_date_time: '2026-01-16T02:30:00Z',
     });
     await client.appointments.cancelBooking('EKI0000000001700000000');
-    await client.appointments.listForCustomer({ api_customer_id: 'CUST1001', status: 'confirmed' });
-    await client.appointments.getPaymentDetails({
-      provider_id: 1001,
-      appointment_type: 'inclinic',
-      service_name: 'ahc',
-      customers: [{ api_customer_id: 'CUST1001', package_ids: [1001] }],
-    });
     await client.appointments.getReports('APT1A2B3C4D5');
     await client.appointments.getLabResults('APT1A2B3C4D5');
     expect(apiCalls().map((c) => `${c.method} ${c.url.pathname}${c.url.search}`)).toEqual([
@@ -100,8 +93,6 @@ describe('appointments', () => {
       'PATCH /api/appointments/APT1A2B3C4D5/cancel',
       'PATCH /api/bookings/EKI0000000001700000000/reschedule',
       'PATCH /api/bookings/EKI0000000001700000000/cancel',
-      'GET /api/appointments/customer_appointments?api_customer_id=CUST1001&status=confirmed',
-      'POST /api/appointments/payment_details',
       'GET /api/appointments/APT1A2B3C4D5/reports',
       'GET /api/appointments/APT1A2B3C4D5/lab_results',
     ]);

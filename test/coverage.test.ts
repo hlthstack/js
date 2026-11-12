@@ -10,8 +10,6 @@ const METHODS: Record<string, string> = {
   listSlots: 'appointments.listSlots',
   createAppointment: 'appointments.create',
   getAppointment: 'appointments.get',
-  listCustomerAppointments: 'appointments.listForCustomer',
-  getAppointmentPaymentDetails: 'appointments.getPaymentDetails',
   rescheduleBooking: 'appointments.rescheduleBooking',
   cancelBooking: 'appointments.cancelBooking',
   rescheduleAppointment: 'appointments.reschedule',
@@ -60,7 +58,7 @@ describe('API coverage', () => {
   const operationIds = [...pathsPart!.matchAll(/operationId: (\w+)/g)].map((m) => m[1]);
 
   it('has one client method per spec operation', () => {
-    expect(operationIds).toHaveLength(47);
+    expect(operationIds).toHaveLength(45);
     expect(Object.keys(METHODS).sort()).toEqual([...operationIds].sort());
   });
 

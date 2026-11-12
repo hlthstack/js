@@ -71,10 +71,6 @@ export type CreateAppointmentParams = Schemas['CreateAppointmentRequest'];
 export type CreateAppointmentResponse = Schemas['CreateAppointmentResponse'];
 export type GetAppointmentParams = QueryOf<'getAppointment'>;
 export type BookingDetails = Schemas['BookingDetails'];
-export type ListCustomerAppointmentsParams = QueryOf<'listCustomerAppointments'>;
-export type ListCustomerAppointmentsResponse = JsonResponseOf<'listCustomerAppointments'>;
-export type AppointmentPaymentDetailsParams = Schemas['AppointmentPaymentDetailsRequest'];
-export type AppointmentPaymentDetailsResponse = Schemas['AppointmentPaymentDetailsResponse'];
 export type RescheduleAppointmentParams = Schemas['RescheduleAppointmentRequest'];
 export type AppointmentReportsResponse = JsonResponseOf<'getAppointmentReports'>;
 

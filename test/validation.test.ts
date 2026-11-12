@@ -278,8 +278,8 @@ describe('x-hlthstack-rules', () => {
   });
 
   it('at_least_one_of: at the top level, per array item, and inside an optional object', () => {
-    expect(issues('listCustomerAppointments', { query: { status: 'confirmed' } })).toEqual([
-      { path: '', rule: 'at_least_one_of', message: 'send at least one of api_customer_id, employee_id' },
+    expect(issues('listCustomerPlans', { params: { company_slug: 'example-co' }, query: {} })).toEqual([
+      { path: '', rule: 'at_least_one_of', message: 'send at least one of api_customer_id, customer_id' },
     ]);
     expect(problems('createPreRegistrations', { body: { employees: [], dependants: [{ first_name: 'John', last_name: 'Doe', date_of_birth: '', gender: '', mobile_number: '', relation: '', guardian_email: ' ' }] } })).toEqual([
       'dependants[0] at_least_one_of',
@@ -482,11 +482,6 @@ const cases: Record<string, { valid: RequestInput; invalid: RequestInput; expect
     valid: { body: bodyExample('createAppointment') },
     invalid: { body: { ...bodyExample('createAppointment'), address: undefined } },
     expected: ['address required_if'],
-  },
-  listCustomerAppointments: {
-    valid: { query: { employee_id: 'EMP1001' } },
-    invalid: { query: { api_customer_id: ' ' } },
-    expected: [' at_least_one_of'],
   },
   rescheduleBooking: {
     valid: { params: bookingId, body: bodyExample('rescheduleBooking') },

@@ -8,8 +8,6 @@ export type ValidatedOperation =
   | 'listSlots'
   | 'getAppointment'
   | 'createAppointment'
-  | 'listCustomerAppointments'
-  | 'getAppointmentPaymentDetails'
   | 'rescheduleBooking'
   | 'cancelBooking'
   | 'rescheduleAppointment'
@@ -584,108 +582,6 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
         }
       }
     ]
-  },
-  "listCustomerAppointments": {
-    "query": {
-      "type": "object",
-      "properties": {
-        "api_customer_id": {
-          "type": "string"
-        },
-        "employee_id": {
-          "type": "string"
-        },
-        "from_date": {
-          "type": "string",
-          "format": "date"
-        },
-        "to_date": {
-          "type": "string",
-          "format": "date"
-        },
-        "status": {
-          "type": "string"
-        }
-      }
-    },
-    "rules": [
-      {
-        "rule": "at_least_one_of",
-        "description": "Send api_customer_id or employee_id.",
-        "fields": [
-          "api_customer_id",
-          "employee_id"
-        ]
-      }
-    ]
-  },
-  "getAppointmentPaymentDetails": {
-    "bodyRequired": true,
-    "body": {
-      "type": "object",
-      "required": [
-        "provider_id",
-        "appointment_type",
-        "service_name",
-        "customers"
-      ],
-      "properties": {
-        "provider_id": {
-          "type": [
-            "integer",
-            "string"
-          ],
-          "pattern": "^[+-]?[0-9]+$"
-        },
-        "appointment_type": {
-          "type": "string",
-          "enum": [
-            "home_collection",
-            "inclinic"
-          ]
-        },
-        "service_name": {
-          "type": "string"
-        },
-        "plan_id": {
-          "type": "string"
-        },
-        "customer_plan_id": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "subscription_id": {
-          "type": "string"
-        },
-        "customers": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "required": [
-              "api_customer_id",
-              "package_ids"
-            ],
-            "properties": {
-              "api_customer_id": {
-                "type": "string",
-                "pattern": "\\S"
-              },
-              "package_ids": {
-                "type": "array",
-                "minItems": 1,
-                "items": {
-                  "type": "integer"
-                }
-              },
-              "booking_customer": {
-                "type": "boolean"
-              }
-            }
-          }
-        }
-      }
-    }
   },
   "rescheduleBooking": {
     "params": {

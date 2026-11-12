@@ -185,8 +185,6 @@ Method names follow the spec's `operationId`s, grouped by area.
 | | `listSlots(providerId, benefitType, params)` | `GET /api/providers/{provider_id}/{benefit_type}/slots` |
 | | `create` (createAppointment) | `POST /api/appointments` |
 | | `get` (getAppointment) | `GET /api/appointments` |
-| | `listForCustomer` (listCustomerAppointments) | `GET /api/appointments/customer_appointments` |
-| | `getPaymentDetails` (getAppointmentPaymentDetails) | `POST /api/appointments/payment_details` |
 | | `rescheduleBooking(bookingId, params)` | `PATCH /api/bookings/{booking_id}/reschedule` |
 | | `cancelBooking(bookingId)` | `PATCH /api/bookings/{booking_id}/cancel` |
 | | `reschedule(appointmentId, params)` | `PATCH /api/appointments/{appointment_id}/reschedule` |

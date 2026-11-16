@@ -705,6 +705,15 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
       "required": [
         "booking_id"
       ]
+    },
+    "body": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 255
+        }
+      }
     }
   },
   "rescheduleAppointment": {
@@ -829,6 +838,15 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
       "required": [
         "appointment_id"
       ]
+    },
+    "body": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "maxLength": 255
+        }
+      }
     }
   },
   "getAppointmentVoucher": {

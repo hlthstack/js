@@ -299,10 +299,13 @@ carries comma-separated `success` and `failed` appointment ids.
 ### 6. Cancel
 
 `PATCH /api/appointments/{appointment_id}/cancel` (or `/api/bookings/{booking_id}/cancel`).
-No body; same cut-offs as reschedule.
+Same cut-offs as reschedule. Optional body: `reason` (up to 255 characters), recorded as the cancellation reason; without
+it hlthstack records `Cancelled by your booking partner`.
 
 ```js
-await api('PATCH', `/api/appointments/${appointmentId}/cancel`);
+await api('PATCH', `/api/appointments/${appointmentId}/cancel`, {
+  body: { reason: 'Member is travelling' },
+});
 ```
 
 ### 7. Download the voucher
@@ -321,7 +324,9 @@ if (appointment.status === 'confirmed') {
 ```
 
 After the visit, `GET /api/appointments/{appointment_id}/reports` and `.../lab_results` return
-the reports and digitized values.
+the reports and digitized values. Report links are signed
+URLs that expire 5 minutes after they're issued: download the files right away, and fetch fresh
+links when you need them again.
 
 ## Consultations and ePharmacy
 

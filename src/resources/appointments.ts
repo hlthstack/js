@@ -2,6 +2,7 @@ import { path, type RequestOptions, type Transport } from '../core.js';
 import type {
   AppointmentReportsResponse,
   BookingDetails,
+  CancelParams,
   CreateAppointmentParams,
   CreateAppointmentResponse,
   GetAppointmentParams,
@@ -77,14 +78,25 @@ export class Appointments {
     );
   }
 
-  /** `PATCH /api/bookings/{booking_id}/cancel` (cancelBooking). May partially succeed. */
-  cancelBooking(bookingId: string, options?: RequestOptions): Promise<PartialResult> {
+  /**
+   * `PATCH /api/bookings/{booking_id}/cancel` (cancelBooking). May partially succeed. Pass
+   * `{ reason }` to record why; without it hlthstack records `Cancelled by your booking partner`.
+   */
+  cancelBooking(bookingId: string, options?: RequestOptions): Promise<PartialResult>;
+  cancelBooking(bookingId: string, params: CancelParams, options?: RequestOptions): Promise<PartialResult>;
+  cancelBooking(
+    bookingId: string,
+    paramsOrOptions?: CancelParams | RequestOptions,
+    maybeOptions?: RequestOptions,
+  ): Promise<PartialResult> {
+    const [body, options] = cancelArgs(paramsOrOptions, maybeOptions);
     return this.transport.request(
       {
         operation: 'cancelBooking',
         method: 'PATCH',
         path: path`/api/bookings/${bookingId}/cancel`,
         params: { booking_id: bookingId },
+        body,
       },
       options,
     );
@@ -108,14 +120,25 @@ export class Appointments {
     );
   }
 
-  /** `PATCH /api/appointments/{appointment_id}/cancel` (cancelAppointment). */
-  cancel(appointmentId: string, options?: RequestOptions): Promise<Message> {
+  /**
+   * `PATCH /api/appointments/{appointment_id}/cancel` (cancelAppointment). Pass `{ reason }` to
+   * record why; without it hlthstack records `Cancelled by your booking partner`.
+   */
+  cancel(appointmentId: string, options?: RequestOptions): Promise<Message>;
+  cancel(appointmentId: string, params: CancelParams, options?: RequestOptions): Promise<Message>;
+  cancel(
+    appointmentId: string,
+    paramsOrOptions?: CancelParams | RequestOptions,
+    maybeOptions?: RequestOptions,
+  ): Promise<Message> {
+    const [body, options] = cancelArgs(paramsOrOptions, maybeOptions);
     return this.transport.request(
       {
         operation: 'cancelAppointment',
         method: 'PATCH',
         path: path`/api/appointments/${appointmentId}/cancel`,
         params: { appointment_id: appointmentId },
+        body,
       },
       options,
     );
@@ -163,4 +186,13 @@ export class Appointments {
       options,
     );
   }
+}
+
+// The cancel methods take `(id, options)` as before, or `(id, { reason }, options)`.
+function cancelArgs(
+  paramsOrOptions: CancelParams | RequestOptions | undefined,
+  maybeOptions: RequestOptions | undefined,
+): [CancelParams | undefined, RequestOptions | undefined] {
+  if (paramsOrOptions && 'reason' in paramsOrOptions) return [paramsOrOptions as CancelParams, maybeOptions];
+  return [undefined, paramsOrOptions as RequestOptions | undefined];
 }

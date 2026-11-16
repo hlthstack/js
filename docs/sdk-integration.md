@@ -186,9 +186,9 @@ Method names follow the spec's `operationId`s, grouped by area.
 | | `create` (createAppointment) | `POST /api/appointments` |
 | | `get` (getAppointment) | `GET /api/appointments` |
 | | `rescheduleBooking(bookingId, params)` | `PATCH /api/bookings/{booking_id}/reschedule` |
-| | `cancelBooking(bookingId)` | `PATCH /api/bookings/{booking_id}/cancel` |
+| | `cancelBooking(bookingId, { reason }?)` | `PATCH /api/bookings/{booking_id}/cancel` |
 | | `reschedule(appointmentId, params)` | `PATCH /api/appointments/{appointment_id}/reschedule` |
-| | `cancel(appointmentId)` | `PATCH /api/appointments/{appointment_id}/cancel` |
+| | `cancel(appointmentId, { reason }?)` | `PATCH /api/appointments/{appointment_id}/cancel` |
 | | `getVoucher(appointmentId)` → `ArrayBuffer` | `GET /api/appointments/{appointment_id}/voucher` |
 | | `getReports(appointmentId)` | `GET /api/appointments/{appointment_id}/reports` |
 | | `getLabResults(appointmentId)` | `GET /api/appointments/{appointment_id}/lab_results` |

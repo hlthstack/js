@@ -74,5 +74,5 @@ if (appointment.status === 'confirmed') {
 }
 
 // 7. Cancel (this example cleans up after itself).
-await api('PATCH', `/api/appointments/${appointmentId}/cancel`);
+await api('PATCH', `/api/appointments/${appointmentId}/cancel`, { body: { reason: 'Example clean-up' } });
 console.log('Cancelled', appointmentId);

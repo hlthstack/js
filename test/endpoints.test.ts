@@ -99,6 +99,24 @@ describe('appointments', () => {
     expect(apiCalls()[2]?.body).toBeUndefined();
   });
 
+  it('cancel and cancelBooking send an optional reason, and still take options second', async () => {
+    const { client, apiCalls } = setup();
+    await client.appointments.cancel('APT1A2B3C4D5', { reason: 'Member is travelling' });
+    await client.appointments.cancelBooking('EKI0000000001700000000', { reason: 'Duplicate booking' }, { timeoutMs: 5000 });
+    await client.appointments.cancelBooking('EKI0000000001700000000', { timeoutMs: 5000 });
+    expect(await jsonBody(apiCalls()[0]!)).toEqual({ reason: 'Member is travelling' });
+    expect(await jsonBody(apiCalls()[1]!)).toEqual({ reason: 'Duplicate booking' });
+    expect(apiCalls()[2]?.body).toBeUndefined();
+  });
+
+  it('rejects a cancel reason over 255 characters before calling the API', async () => {
+    const { client, apiCalls } = setup();
+    await expect(client.appointments.cancel('APT1A2B3C4D5', { reason: 'x'.repeat(256) })).rejects.toThrow(
+      /reason/,
+    );
+    expect(apiCalls()).toHaveLength(0);
+  });
+
   it('getVoucher returns the PDF bytes', async () => {
     const pdf = new TextEncoder().encode('%PDF-1.4 example');
     const { client, last } = setup({

@@ -328,8 +328,8 @@ describe('book-health-checkup.mjs', () => {
     });
     expect(get.query).toEqual({ booking_id: 'EKI0000000001700000000', appointment_id: 'APT1A2B3C4D5' });
     expect(reschedule.json).toEqual({ appointment_date_time: '2030-01-16T02:30:00.000Z' });
-    expect(cancel.raw.length).toBe(0);
-    expect(cancel.headers['content-type']).toBeUndefined();
+    expect(cancel.headers['content-type']).toBe('application/json');
+    expect(cancel.json).toEqual({ reason: 'Example clean-up' });
     expect((await readFile(voucherFile)).toString()).toBe('%PDF-1.4 voucher');
   });
 });

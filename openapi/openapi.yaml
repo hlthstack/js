@@ -323,13 +323,15 @@ paths:
         Books one appointment per customer at one provider and time. All appointments share
         a `booking_id`; each customer gets an `appointment_id`.
 
-        The booking customer is the last entry with `booking_customer: true`, else the first.
-        `address` is required for `home_collection`.
+        The booking customer is the last entry with `booking_customer: true`, else the first;
+        set it on one entry only. `address` is required for `home_collection`. There's no fixed
+        limit on customers, but all of them must fit in the provider's slot capacity, otherwise
+        `appointment_date_time` fails with `Booking threshold reached ... (its slots are full)`.
 
         If the member's wallet covers the cost the booking is placed and `status` is
         `confirmed` (the appointment itself still starts at `new` and is confirmed by the
         provider). If an amount is due, `status` is `payment_pending` and `payment_link` must
-        be paid by the member.
+        be paid by the member; its appointments are `payment_pending` until then, then `new`.
 
         To pay from a specific subscription when a customer holds several on a plan, send
         `customer_plan_id` (hlthstack's id, from `listCustomerPlans`) or `subscription_id`
@@ -519,6 +521,11 @@ paths:
       description: |
         Home collection: allowed until a phlebotomist is assigned or 30 minutes before the
         slot, whichever is first. In-clinic: allowed until 30 minutes before the slot.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CancelRequest'}
       responses:
         '200':
           description: All or some appointments cancelled.
@@ -620,6 +627,11 @@ paths:
       tags: [Health Checkups]
       summary: Cancel an appointment
       description: Same cut-offs as `cancelBooking`.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/CancelRequest'}
       responses:
         '200':
           description: Cancelled.
@@ -678,7 +690,9 @@ paths:
       summary: Get verified report links
       description: |
         Call when the appointment is `partially_received` or `received`. Returns links to
-        the verified reports, or a message if none are verified yet.
+        the verified reports, or a message if none are verified yet. Report links are signed
+        URLs that expire 5 minutes after they're issued: download right away and don't store
+        them.
       responses:
         '200':
           description: Report links, or not yet verified.
@@ -3503,10 +3517,18 @@ components:
         refunded_amount: {type: [string, number]}
         captured_at: {type: [string, 'null'], format: date-time}
         refunded_at: {type: [string, 'null'], format: date-time}
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          maxLength: 255
+          description: Recorded as the cancellation reason. Defaults to `Cancelled by your booking partner`.
+          example: Member is travelling
     AppointmentStatus:
       type: string
       description: |
-        Appointment status. Health checkups: `new`, `confirmed`, `rejected`, `noshow`,
+        Appointment status. Health checkups: `payment_pending`, `new`, `confirmed`, `rejected`, `noshow`,
         `cancelled`, `rescheduled`, `completed`, `verification_required`,
         `partially_received`, `received`. Consultations: `new`, `confirmed`, `rejected`,
         `noshow`, `cancelled`, `rescheduled`, `completed`, `received`. Treat unknown values

@@ -129,13 +129,15 @@ export interface paths {
          * @description Books one appointment per customer at one provider and time. All appointments share
          *     a `booking_id`; each customer gets an `appointment_id`.
          *
-         *     The booking customer is the last entry with `booking_customer: true`, else the first.
-         *     `address` is required for `home_collection`.
+         *     The booking customer is the last entry with `booking_customer: true`, else the first;
+         *     set it on one entry only. `address` is required for `home_collection`. There's no fixed
+         *     limit on customers, but all of them must fit in the provider's slot capacity, otherwise
+         *     `appointment_date_time` fails with `Booking threshold reached ... (its slots are full)`.
          *
          *     If the member's wallet covers the cost the booking is placed and `status` is
          *     `confirmed` (the appointment itself still starts at `new` and is confirmed by the
          *     provider). If an amount is due, `status` is `payment_pending` and `payment_link` must
-         *     be paid by the member.
+         *     be paid by the member; its appointments are `payment_pending` until then, then `new`.
          *
          *     To pay from a specific subscription when a customer holds several on a plan, send
          *     `customer_plan_id` (hlthstack's id, from `listCustomerPlans`) or `subscription_id`
@@ -328,7 +330,9 @@ export interface paths {
         /**
          * Get verified report links
          * @description Call when the appointment is `partially_received` or `received`. Returns links to
-         *     the verified reports, or a message if none are verified yet.
+         *     the verified reports, or a message if none are verified yet. Report links are signed
+         *     URLs that expire 5 minutes after they're issued: download right away and don't store
+         *     them.
          */
         get: operations["getAppointmentReports"];
         put?: never;
@@ -1820,8 +1824,15 @@ export interface components {
             /** Format: date-time */
             refunded_at?: string | null;
         };
+        CancelRequest: {
+            /**
+             * @description Recorded as the cancellation reason. Defaults to `Cancelled by your booking partner`.
+             * @example Member is travelling
+             */
+            reason?: string;
+        };
         /**
-         * @description Appointment status. Health checkups: `new`, `confirmed`, `rejected`, `noshow`,
+         * @description Appointment status. Health checkups: `payment_pending`, `new`, `confirmed`, `rejected`, `noshow`,
          *     `cancelled`, `rescheduled`, `completed`, `verification_required`,
          *     `partially_received`, `received`. Consultations: `new`, `confirmed`, `rejected`,
          *     `noshow`, `cancelled`, `rescheduled`, `completed`, `received`. Treat unknown values
@@ -3815,7 +3826,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CancelRequest"];
+            };
+        };
         responses: {
             /** @description All or some appointments cancelled. */
             200: {
@@ -3942,7 +3957,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CancelRequest"];
+            };
+        };
         responses: {
             /** @description Cancelled. */
             200: {

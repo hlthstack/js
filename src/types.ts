@@ -72,6 +72,8 @@ export type CreateAppointmentResponse = Schemas['CreateAppointmentResponse'];
 export type GetAppointmentParams = QueryOf<'getAppointment'>;
 export type BookingDetails = Schemas['BookingDetails'];
 export type RescheduleAppointmentParams = Schemas['RescheduleAppointmentRequest'];
+/** Optional body of `cancelBooking` and `cancelAppointment`: `reason` (up to 255 characters). */
+export type CancelParams = Schemas['CancelRequest'];
 export type AppointmentReportsResponse = JsonResponseOf<'getAppointmentReports'>;
 
 // ------------------------------------------------------------------ consultations

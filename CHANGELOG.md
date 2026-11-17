@@ -2,12 +2,22 @@
 
 Releases of the hlthstack JavaScript/TypeScript SDK. Versions follow [semantic versioning](https://semver.org/):
 a major version for breaking changes, a minor version for new features, a patch version
-for fixes. Each release is a git tag (`v1.0.0`) with a GitHub release; pin one in your
-dependency (`github:hlthstack/js#v1.0.0`).
+for fixes. Each release is a git tag (`v1.0.1`) with a GitHub release; pin one in your
+dependency (`github:hlthstack/js#v1.0.1`).
 
 The SDK's major and minor versions are independent of the API's. Each release names the
 API spec version it was built from
 ([hlthstack/integration-guide](https://github.com/hlthstack/integration-guide/blob/main/CHANGELOG.md)).
+
+## 1.0.1 (2026-11-17)
+
+Built from API spec 1.0.1.
+
+- Booking a consultation (`createInclinicConsultation`, `createSpecialistConsultation`)
+  now requires `service_mode`, as the API does: a request without it is stopped before it
+  is sent instead of failing with `service mode can't be blank`.
+- The bundled spec explains each endpoint's rules: booking hours and notice, reschedule and
+  cancel limits, co-pay links, statuses and webhooks.
 
 ## 1.0.0 (2026-11-17)
 

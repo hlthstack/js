@@ -24,14 +24,11 @@ REST reference and guides: https://github.com/hlthstack/integration-guide
 Install straight from GitHub:
 
 ```sh
-npm install github:hlthstack/js
+npm install github:hlthstack/js#v1.0.0
 ```
 
-Pin a release tag or commit for reproducible installs:
-
-```sh
-npm install github:hlthstack/js#<tag-or-commit>
-```
+Pin a release tag, as above, for reproducible installs. Releases and their changes are
+listed in [CHANGELOG.md](../CHANGELOG.md).
 
 npm builds the package (`dist/`) during the install, so the first install takes a little
 longer. Import it as `hlthstack` either way. Publishing to the npm registry

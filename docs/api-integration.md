@@ -9,7 +9,7 @@ which are tested against a mock server in
 [`test/api-examples.test.mjs`](../test/api-examples.test.mjs). The full reference is the [API reference](https://developers.hlthstack.io) (built from the
 [OpenAPI spec](https://github.com/hlthstack/integration-guide/blob/main/openapi/openapi.yaml))
 and the [integration guide](https://github.com/hlthstack/integration-guide/tree/main/docs).
-To try a call before writing code, use the [Postman docs](https://documenter.getpostman.com/view/32733686/2sBYHbqvwh): choose **Run in Postman**,
+To try a call before writing code, use the [Postman docs](https://documenter.getpostman.com/view/32733686/2sBYHbrFjt): choose **Run in Postman**,
 pick the staging environment and enter your credentials.
 
 > **Server-side only.** Your API credentials, access tokens, entity secret key and webhook

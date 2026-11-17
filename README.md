@@ -21,7 +21,7 @@ This repo has two ways to do it, and both talk to the same API with the same JSO
 
 | | SDK | Plain REST API |
 |---|---|---|
-| **Install** | `npm install github:hlthstack/js` | Nothing: any HTTP client (Node 18+ `fetch`) |
+| **Install** | `npm install github:hlthstack/js#v1.0.2` | Nothing: any HTTP client (Node 18+ `fetch`) |
 | **Authentication** | Tokens fetched, cached and refreshed for you (including pre-registration) | You call the token endpoints and refresh before expiry |
 | **Input validation** | Every spec rule checked before sending | You check inputs, or rely on the server's `400`/`422` |
 | **Types** | TypeScript types for every request and response | Read the OpenAPI spec |
@@ -52,13 +52,15 @@ const client = new Hlthstack({
   environment: 'staging', // or 'production'
 });
 
+// Use the package id and plan id issued to you at onboarding.
 const { providers } = await client.appointments.listProviders({
   service_name: 'ahc',
-  package_ids: '1001',
+  package_ids: 'YOUR_PACKAGE_ID',
+  plan_id: 'YOUR_PLAN_ID',
   pincode: '500081',
 });
 const slots = await client.appointments.listSlots(providers[0]!.provider_id!, 'ahc', {
-  package_ids: '1001',
+  package_ids: 'YOUR_PACKAGE_ID',
   pincode: '500081',
 });
 ```

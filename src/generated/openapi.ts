@@ -3362,7 +3362,12 @@ export interface components {
          * @example 78.386
          */
         LongitudeQuery: number;
-        /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+        /**
+         * @description The plan id issued with your package ids at onboarding. Send it: without it the
+         *     entity's base plan is used, and a service that isn't on the base plan returns
+         *     `403 this service is not enabled for you`.
+         * @example EXAMPLE_PLAN
+         */
         PlanIdQuery: string;
         /** @description hlthstack's subscription id (from `listCustomerPlans`). */
         CustomerPlanIdQuery: number;
@@ -3482,7 +3487,12 @@ export interface operations {
                  *     location, and the slot may change if no provider is free at that time.
                  */
                 auto_allocate_provider?: boolean;
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
                 /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
@@ -3605,7 +3615,12 @@ export interface operations {
                 longitude?: components["parameters"]["LongitudeQuery"];
                 /** @description City for the pincode. Derived from the pincode when omitted. */
                 city_name?: string;
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
             };
             header?: {
@@ -4390,7 +4405,12 @@ export interface operations {
                 longitude?: components["parameters"]["LongitudeQuery"];
                 /** @description Search radius in km. Default 100. */
                 radius?: number;
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
                 /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
@@ -4498,7 +4518,12 @@ export interface operations {
                 package_ids: components["parameters"]["PackageIdsQuery"];
                 /** @description `true` to list priority-consultation providers. */
                 default_provider?: boolean;
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
                 /** @description Page number. Values below 1 are read as 1. */
                 page?: components["parameters"]["Page"];
@@ -5391,7 +5416,12 @@ export interface operations {
             query: {
                 /** @description Your id for the member. */
                 "customer_details[api_customer_id]": components["parameters"]["CustomerDetailsApiCustomerId"];
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
             };
             header?: {
@@ -5474,7 +5504,12 @@ export interface operations {
                 /** @description Your id for the member. */
                 "customer_details[api_customer_id]": components["parameters"]["CustomerDetailsApiCustomerId"];
                 cart_id: number;
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
             };
             header?: {
@@ -6168,7 +6203,12 @@ export interface operations {
     getCustomerWallet: {
         parameters: {
             query?: {
-                /** @description Plan identifier shared at onboarding. Defaults to the base plan. */
+                /**
+                 * @description The plan id issued with your package ids at onboarding. Send it: without it the
+                 *     entity's base plan is used, and a service that isn't on the base plan returns
+                 *     `403 this service is not enabled for you`.
+                 * @example EXAMPLE_PLAN
+                 */
                 plan_id?: components["parameters"]["PlanIdQuery"];
                 api_customer_id?: string;
                 /** @description hlthstack's customer id. */

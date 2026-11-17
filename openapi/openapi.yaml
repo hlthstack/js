@@ -21,7 +21,9 @@ info:
       uploads are multipart).
     - Date-times are ISO 8601. Send `appointment_date_time` in UTC (`2030-01-15T03:30:00Z`).
     - `plan_id`, wherever accepted, is the plan identifier hlthstack shares at onboarding
-      (a string). It is optional; when omitted, the entity's base plan is used.
+      (a string), together with the package ids it covers. Send it: when omitted, the
+      entity's base plan is used, and a service that isn't on the base plan returns
+      `403 this service is not enabled for you`.
     - Any unhandled error is returned as `422 {"errors":{"messages":["..."]}}`.
 
     **Input validation.** Request schemas encode the checks the server applies to the input
@@ -3083,8 +3085,12 @@ components:
     PlanIdQuery:
       name: plan_id
       in: query
-      description: Plan identifier shared at onboarding. Defaults to the base plan.
+      description: |
+        The plan id issued with your package ids at onboarding. Send it: without it the
+        entity's base plan is used, and a service that isn't on the base plan returns
+        `403 this service is not enabled for you`.
       schema: {type: string}
+      example: EXAMPLE_PLAN
     CustomerPlanIdQuery:
       name: customer_plan_id
       in: query

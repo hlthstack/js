@@ -1052,6 +1052,7 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
       "required": [
         "provider_id",
         "appointment_date_time",
+        "service_mode",
         "customers",
         "address"
       ],
@@ -1238,6 +1239,7 @@ export const operations: Record<ValidatedOperation, OperationValidation> = {
       "type": "object",
       "required": [
         "provider_id",
+        "service_mode",
         "customers"
       ],
       "properties": {

@@ -34,10 +34,20 @@ info:
     depend on stored data (plan benefits, slot availability, provider capability) are not
     encoded and are reported by the server.
 
-    Guides: https://github.com/hlthstack/integration-guide/tree/main/docs
+    Guides: https://github.com/hlthstack/integration-guide/tree/main/docs. Getting started:
+    https://github.com/hlthstack/integration-guide/blob/main/docs/getting-started.md.
+
+    **Postman.** Import the collection
+    (https://developers.hlthstack.io/postman/hlthstack.postman_collection.json) and the
+    staging (https://developers.hlthstack.io/postman/hlthstack-staging.postman_environment.json)
+    or production (https://developers.hlthstack.io/postman/hlthstack-production.postman_environment.json)
+    environment, then fill in your credentials. Tokens are fetched for you.
   contact:
     name: hlthstack
     url: https://www.hlthstack.io/
+  license:
+    name: MIT
+    identifier: MIT
 servers:
   - url: https://api.hlthstack.io
     description: Production
@@ -62,13 +72,40 @@ tags:
   - name: Health Checkups
     description: Providers, slots and appointments for health checkups, lab tests, dental, vision and vaccinations.
   - name: Consultations
-    description: In-clinic consultations and online specialist consultations (scheduled and priority).
+    description: |
+      In-clinic consultations and online specialist consultations (scheduled and priority).
+      All three use the same endpoints; what changes is whether the member picks a doctor and
+      a time.
+
+      1. List doctors: `listInclinicConsultationProviders` or
+         `listSpecialistConsultationProviders`. For priority, send `default_provider=true`.
+      2. Fetch slots with `listSlots` (not for priority) and book with the slot's
+         `utc_slot_time`.
+      3. Book with `createInclinicConsultation` or `createSpecialistConsultation`. Store
+         `booking_id` and each `appointment_id`. If the response has `payment_link`, send the
+         member to it.
+      4. Follow status changes by webhook (`onConsultationStatusUpdate`); use
+         `getInclinicConsultation` / `getSpecialistConsultation` to re-sync.
+      5. Optional before the consultation: `uploadConsultationDocuments`,
+         `getConsultationVoucher` (in-clinic, once confirmed), `rescheduleConsultation`,
+         `cancelConsultation`.
+      6. After an online consultation: `getConsultationSummaryAndPrescription`.
+
+      | | In-clinic | Scheduled online | Priority online |
+      |---|---|---|---|
+      | Member picks doctor and slot | Yes | Yes | No |
+      | Confirmed by | The clinic (some confirm automatically) | The doctor | Automatic |
+      | `meeting_link` | No | `video_call` only, once the doctor confirms | `video_call` only, once a doctor is assigned |
+      | Voucher | Yes, once confirmed | No | No |
+      | Summary and prescription | No API summary | API and webhooks | API and webhooks |
+
+      For `audio_call` there is no link: the doctor phones the `mobile_number` you sent.
   - name: ePharmacy
     description: Medicine search, prescription digitization, cart, pricing and orders.
   - name: Wallet
     description: Member benefit wallets and plan subscriptions.
   - name: Pre-registration
-    description: Register, update and deactivate members and their dependants in bulk. Uses its own credentials and token (`X-EKINCARE-KEY`).
+    description: Register, update and deactivate members and their dependants in bulk, so their accounts are ready before they first sign in. Uses its own credentials and token (`X-EKINCARE-KEY`).
   - name: Testing
     description: Staging-only endpoints that move a booking or order through its lifecycle and fire the real webhooks.
 
@@ -229,7 +266,11 @@ paths:
         (from `listProviders`); a `booking_date` before it returns 400.
 
         For `inclinic_consultation` and `specialist_consultation` the provider must be an
-        active doctor whose speciality matches the packages.
+        active doctor whose speciality matches the packages; otherwise 400 under
+        `provider_id` (`invalid id`, `The provider is temporarily unserviceable`, `does not
+        have a doctor associated with it`) or `package_ids` (`The selected provider does not
+        match the package specialities`). Priority consultations have no slots. Show only
+        slots with `available: true`; a day with an empty `slots` list has no availability.
       parameters:
         - name: package_ids
           in: query
@@ -519,8 +560,9 @@ paths:
       tags: [Health Checkups]
       summary: Cancel every appointment in a booking
       description: |
-        Home collection: allowed until a phlebotomist is assigned or 30 minutes before the
-        slot, whichever is first. In-clinic: allowed until 30 minutes before the slot.
+        Allowed until 30 minutes before the slot (and, at providers connected through a partner
+        integration, not within 5 minutes of booking). Some providers also refuse cancellation after a phlebotomist is assigned, after a
+        reschedule, or on the day of the appointment.
       requestBody:
         required: false
         content:
@@ -566,9 +608,11 @@ paths:
           the current provider.
         - New address (home collection): add `address` together with `provider_id`.
 
-        Home collection: allowed until a phlebotomist is assigned or 30 minutes before the
-        slot, whichever is first. In-clinic: until 30 minutes before the slot. An in-clinic
-        appointment cannot become home collection.
+        Allowed until 30 minutes before the slot (and, at providers connected through a partner
+        integration, not within 5 minutes of booking or of the last reschedule). Some providers also refuse changes after confirmation or after a
+        phlebotomist is assigned, or limit the number of reschedules. The new date must fall
+        inside the plan's service period and within booking hours (06:00-20:59 IST, until
+        22:59 at some providers). An in-clinic appointment cannot become home collection.
       x-hlthstack-rules:
         - rule: no_conflicting_pincode
           description: When address is sent for a home-collection appointment, address_line_one, address_line_two, city, state and country must not contain a 6-digit pincode other than address.pincode.
@@ -603,8 +647,8 @@ paths:
           $ref: '#/components/responses/NotYourAppointment'
         '422':
           description: |
-            Different provider after confirmation, a request already in progress, or a
-            duplicate appointment at the new slot.
+            A different provider at a provider connected through a partner integration, a
+            request already in progress, or a duplicate appointment at the new slot.
           content:
             application/json:
               schema:
@@ -822,7 +866,10 @@ paths:
       operationId: listInclinicConsultationProviders
       tags: [Consultations]
       summary: List in-clinic doctors
-      description: Doctors near a location for the given consultation packages, with doctor details.
+      description: |
+        Doctors near a location for the given consultation packages, with doctor details. An
+        empty `providers` list is a valid 200: no doctor is available for these packages and
+        location.
       x-hlthstack-rules:
         - rule: required_if
           description: When pincode is not sent, latitude and longitude are both required (the pincode is derived from them).
@@ -878,6 +925,14 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/ServiceNotEnabled'
+        '404':
+          description: '`sort_by=visited_before` with an `api_customer_id` that does not exist for your entity.'
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/FieldErrors'}
+              example:
+                errors:
+                  api_customer_id: ['customer not found: CUST1001']
         '500':
           $ref: '#/components/responses/ServerError'
 
@@ -891,9 +946,12 @@ paths:
       summary: List online specialists
       description: |
         Doctors available for online (audio/video) specialist consultations. No location is
-        needed. Send `default_provider=true` to list the providers configured for **priority**
-        consultations; an empty list means priority consultation is unavailable for the
-        package or right now.
+        needed. An empty `providers` list is a valid 200: no doctor is available for these
+        packages.
+
+        Send `default_provider=true` for **priority** consultations: it returns the priority
+        provider for the package's speciality, or an empty list when no doctor of that
+        speciality is rostered in the next 4 hours.
       parameters:
         - $ref: '#/components/parameters/PackageIdsQuery'
         - name: default_provider
@@ -942,10 +1000,15 @@ paths:
       tags: [Consultations]
       summary: Book an in-clinic consultation
       description: |
-        Books an in-person consultation at the doctor's clinic. `service_mode`, when sent,
-        must be `at_provider_location`; `address` (the member's) is required, including
-        `pincode`. The booking is made for the first customer in `customers`. Subscription
-        selection works as in `createAppointment`.
+        Books an in-person consultation at the doctor's clinic. Send `service_mode`
+        `at_provider_location`; without it the booking fails with `service mode can't be
+        blank`. `address` (the member's) is required, including `pincode`. The doctor's
+        speciality must match the packages. Subscription selection works as in
+        `createAppointment`.
+
+        Each entry in `customers` is booked as its own consultation (its own
+        `appointment_id`) with the same doctor and slot, under one `booking_id`. The first
+        customer's `mobile_number` is used as the contact number for all of them.
       x-hlthstack-rules:
         - rule: unique_by
           description: Each customer needs its own api_customer_id.
@@ -1000,15 +1063,28 @@ paths:
       tags: [Consultations]
       summary: Book an online specialist consultation
       description: |
-        Books an audio or video consultation.
+        Books an audio or video consultation. Send `service_mode` `audio_call` or
+        `video_call`; without it the booking fails with `service mode can't be blank`. The
+        doctor's speciality must match the packages.
 
         - **Scheduled** (`priority_consultation: false`): `appointment_date_time` must be a
-          slot from `listSlots`; `provider_id` must not be a priority provider.
+          slot from `listSlots`; `provider_id` must not be a priority provider. Some doctors
+          need at least 90 minutes' notice: booking closer to the slot returns 400
+          `{"errors": {"appointment_date_time": ["Specialist appointments must be booked at
+          least 90 minutes in advance"]}}`. For those doctors, a slot that is already taken
+          returns `The selected slot is not available for this doctor`.
         - **Priority** (`priority_consultation: true`): a doctor calls within about 4 hours.
           Available 8 AM-4 PM IST; `provider_id` must come from
           `listSpecialistConsultationProviders` with `default_provider=true`;
-          `appointment_date_time` is optional. The consultation is `confirmed` immediately and
-          the doctor's details arrive by webhook once a doctor is assigned.
+          `appointment_date_time` is optional. The consultation is `confirmed` immediately
+          with a placeholder provider. You may get more than one `confirmed` webhook: the
+          first with the placeholder provider, then one with the assigned doctor (and time).
+          Always show the doctor from the latest event.
+
+        Each entry in `customers` is booked as its own consultation (its own
+        `appointment_id`) with the same doctor and slot, under one `booking_id`. The first
+        customer's `mobile_number` is used as the contact number for all of them; for
+        `audio_call` the doctor phones that number.
       x-hlthstack-rules:
         - rule: required_if
           description: appointment_date_time is required unless priority_consultation is true.
@@ -1150,8 +1226,15 @@ paths:
       summary: Reschedule a consultation
       description: |
         Moves the consultation to a new slot with the same doctor (to change doctor, cancel
-        and book again). Allowed up to 30 minutes before the current slot, and not within
-        5 minutes of the previous booking or reschedule.
+        and book again). Allowed up to 30 minutes before the current slot. `rejected` and
+        `noshow` consultations can be rescheduled at any time (the 30-minute rule does not
+        apply), as long as the member's plan still covers the package.
+
+        Some partner doctors need 2 hours' notice: 422 `Consultations with this partner can
+        only be moved up to 2 hours before the slot.` If the member's plan has ended: 422 `The
+        company plan this appointment was booked under is no longer active.` Both are final
+        for this booking. If the doctor is no longer listed (`Doctor not found`) or the
+        speciality is no longer on the plan, cancel and book again.
       x-hlthstack-rules:
         - rule: relative_date
           description: appointment_date_time must be later than now (a time without an offset is read as IST).
@@ -1195,18 +1278,32 @@ paths:
               examples:
                 rule:
                   value: {errors: {reschedule_error: ['Rescheduling is not allowed: The appointment time must be at least 30 minutes from now.']}}
+                status:
+                  value: {errors: {reschedule_error: [Reschedule not allowed from cancelled]}}
+                speciality:
+                  value: {errors: {reschedule_error: ["Rescheduling is not allowed: The selected doctor's specialty is no longer available to you"]}}
                 slot:
                   value: {errors: {messages: ['Selected slot is unavailable, please select different slot']}}
+                differentDoctor:
+                  value: {errors: {messages: [Cannot reschedule to a different doctor. Please cancel the appointment and book a new one.]}}
+                doctor:
+                  value: {errors: {messages: [Doctor not found]}}
+                date:
+                  value: {errors: {messages: [This provider is not serviceable on the selected date]}}
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/NotYourAppointment'
         '422':
-          description: Blocked by the reschedule policy (status, plan, timing).
+          description: Blocked by the reschedule policy (plan no longer active, or the 2-hour rule for some partner doctors).
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorMessages'}
-              example: {errors: {messages: [Please wait 3 minute(s) before you reschedule this appointment.]}}
+              examples:
+                partner:
+                  value: {errors: {messages: [Consultations with this partner can only be moved up to 2 hours before the slot.]}}
+                plan:
+                  value: {errors: {messages: [The company plan this appointment was booked under is no longer active.]}}
 
   /api/consultations/{appointment_id}/cancel:
     parameters:
@@ -1217,7 +1314,15 @@ paths:
       operationId: cancelConsultation
       tags: [Consultations]
       summary: Cancel a consultation
-      description: Allowed up to 30 minutes before the slot, and not after a no-show or rejection.
+      description: |
+        No request body. Allowed up to 30 minutes before the slot, and not after a no-show or
+        rejection. Amounts paid from the benefit or by the member are refunded automatically,
+        an unpaid payment link is cancelled, and a `cancelled` webhook follows.
+
+        Some partner doctors need 2 hours' notice: 422 `Consultations with this partner can
+        only be cancelled up to 2 hours before the slot.` At clinics connected through a
+        partner integration, a cancel within 5 minutes of booking returns 422 `Please wait N
+        minutes before you cancel this appointment.`; retry after that.
       responses:
         '200':
           description: Cancelled. Note the key is `msg`.
@@ -1243,13 +1348,29 @@ paths:
                       cancel_error:
                         type: array
                         items: {type: string}
-              example: {errors: {cancel_error: ['Cancellation not allowed: The appointment time must be at least 30 minutes from now.']}}
+              examples:
+                rule:
+                  value: {errors: {cancel_error: ['Cancellation not allowed: The appointment time must be at least 30 minutes from now.']}}
+                status:
+                  value: {errors: {cancel_error: [Cancellation not allowed from completed]}}
+                rejected:
+                  value: {errors: {cancel_error: [Cancellation not allowed for rejected appointment]}}
+                noshow:
+                  value: {errors: {cancel_error: ['Cancellation not allowed: a missed (no-show) consultation cannot be cancelled.']}}
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/NotYourAppointment'
         '422':
-          $ref: '#/components/responses/UnprocessableMessages'
+          description: Blocked by the cancellation policy (the 2-hour rule for some partner doctors, or the 5-minute wait after booking).
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/ErrorMessages'}
+              examples:
+                partner:
+                  value: {errors: {messages: [Consultations with this partner can only be cancelled up to 2 hours before the slot.]}}
+                wait:
+                  value: {errors: {messages: [Please wait 3 minutes before you cancel this appointment.]}}
 
   /api/consultations/{appointment_id}/summary_and_prescription:
     parameters:
@@ -1260,7 +1381,11 @@ paths:
       operationId: getConsultationSummaryAndPrescription
       tags: [Consultations]
       summary: Get the consultation summary and prescriptions
-      description: File links are pre-signed and expire after a few minutes; fetch them when needed.
+      description: |
+        `summary.file_name` and `summary.file_url` are `null` when the doctor wrote a
+        prescription but no summary; `doctor_prescriptions` is empty when there is none. File
+        links are pre-signed and expire after a few minutes: download them or fetch again,
+        don't store them.
       responses:
         '200':
           description: Summary and prescriptions.
@@ -1283,7 +1408,7 @@ paths:
         '403':
           $ref: '#/components/responses/NotYourAppointment'
         '404':
-          description: No consultation record yet.
+          description: No consultation record yet (for example, the doctor has not confirmed it). Try again after `completed`.
           content:
             application/json:
               schema: {$ref: '#/components/schemas/ErrorMessages'}
@@ -1298,7 +1423,7 @@ paths:
       operationId: getConsultationVoucher
       tags: [Consultations]
       summary: Download an in-clinic consultation voucher
-      description: Returns the voucher PDF for a confirmed in-clinic consultation.
+      description: Returns the voucher PDF (`<appointment_id>.pdf`, as an attachment) that the member shows at the clinic, for a confirmed in-clinic consultation.
       responses:
         '200':
           description: Voucher PDF.
@@ -1326,10 +1451,14 @@ paths:
       tags: [Consultations]
       summary: Upload medical documents for a consultation
       description: |
-        Shares the member's reports with the doctor (online specialist and priority
-        consultations). Multipart form with one or more `files[][name]` + `files[][value]`
-        pairs, each with a non-blank name and a file. Allowed types: PDF, JPEG, PNG
-        (password-protected PDFs are refused).
+        Shares the member's reports with the doctor. Multipart form with one or more
+        `files[][name]` + `files[][value]` pairs, each with a non-blank name and a file.
+        Allowed types: PDF, JPEG, PNG. Files are virus-scanned.
+
+        `Invalid file format` means the form is wrong (send `files[][name]` and
+        `files[][value]` pairs), not the file type. File problems (wrong type,
+        password-protected or unreadable PDF, virus found) return
+        `{"message": {"emr": ["..."]}}`.
       x-hlthstack-rules:
         - rule: item_count
           description: At least one file; every file entry needs both a non-blank name and a value.
@@ -1373,6 +1502,9 @@ paths:
                   value: {message: Invalid file format}
                 empty:
                   value: {message: No files found}
+                file:
+                  summary: File refused (for example, wrong type)
+                  value: {message: {emr: ['You are not allowed to upload "gif" files, allowed types: png, jpg, pdf, jpeg']}}
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -1389,8 +1521,10 @@ paths:
       summary: (Staging only) Move a consultation to a new status
       description: |
         **Staging only**; the route does not exist in production (404). Fires the same
-        webhook as a real update. `reports_received` attaches a sample summary and
-        prescription and then moves the consultation to `received`.
+        webhook as a real update. `confirm` on a video booking with hlthstack's own doctors
+        also creates `meeting_link`. `cancel` cancels and refunds, ignoring the 30-minute and
+        5-minute rules. `reports_received` attaches a sample summary and prescription and
+        then moves the consultation to `received`.
       servers:
         - url: https://staging-api.hlthstack.io
       requestBody:
@@ -2726,6 +2860,15 @@ webhooks:
         Same endpoint and envelope as `appointmentStatusUpdate`, with `service_type`
         `inclinic_consultation` or `specialist_consultation` plus doctor fields, `summary`,
         `doctor_prescriptions`, hospital fields (in-clinic) and `meeting_link` (video).
+
+        Typical sequences. In-clinic: `new` → `confirmed` → `completed`. Scheduled online:
+        `new` → `confirmed` (with `meeting_link` for video) → `completed`. Priority: `new` →
+        `confirmed` (placeholder provider) → `confirmed` again when a doctor is assigned →
+        `completed`. After a reschedule: `rescheduled`, then `confirmed`. Any of these can
+        instead end in `rejected` (reason in `comment`), `noshow` or `cancelled`. No webhook
+        is sent while a booking waits for the member's co-pay (`payment_pending`). Every
+        consultation webhook carries `summary` and `doctor_prescriptions`, so read them from
+        `completed` as well.
       parameters:
         - $ref: '#/components/parameters/WebhookSignature'
       requestBody:
@@ -3081,7 +3224,7 @@ components:
           schema: {$ref: '#/components/schemas/FieldErrors'}
           example: {errors: {booking_id: [invalid booking_id]}}
     DifferentProvider:
-      description: Cannot move to a different provider once confirmed.
+      description: Appointments at providers connected through a partner integration can't move to another provider.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/FieldErrors'}
@@ -3110,8 +3253,16 @@ components:
               cart: {$ref: '#/components/schemas/Cart'}
     ConsultationCreated:
       description: |
-        Consultation booked. `status: confirmed` is present when the wallet paid in full;
-        `payment_link` is present when the member must pay.
+        Consultation booked. `status: confirmed` means the booking was paid in full from the
+        member's benefit. It is not the doctor's confirmation: each consultation's own state
+        is `customers[].consultation_status`, usually `new`, then `confirmed` by webhook when
+        the doctor or clinic confirms.
+
+        When the member must pay part of the fee, `status` is absent, `consultation_status`
+        is `payment_pending`, and the response carries `payment_link` and
+        `payment_link_expires_at`. Send the member to the link. The booking is confirmed
+        after payment, and the usual webhooks follow. An unpaid booking is never confirmed:
+        it sends no webhook and is dropped after the slot passes.
       content:
         application/json:
           schema: {$ref: '#/components/schemas/CreateConsultationResponse'}
@@ -3128,23 +3279,62 @@ components:
                 customer_plan_id: null
                 subscription_id: null
     ConsultationBookingError:
-      description: Validation error, invalid subscription, or booking failure.
+      description: |
+        Either validation errors (`{"errors": {field: [...]}}`, possibly several fields;
+        customer fields are prefixed `customer_`, address fields `address_`), or the booking
+        could not be placed: `{"msg": "...", "recall": false}` (for example the slot is no
+        longer available, or the provider is not serviceable on that date). Fix the request
+        or pick another slot.
+
+        If some customers in a multi-customer booking were confirmed and others were not, the
+        body is `{"msg": "...", "id": "<booking id>"}`: read the booking to see which ones
+        went through.
       content:
         application/json:
           schema:
             anyOf:
               - $ref: '#/components/schemas/FieldErrors'
               - $ref: '#/components/schemas/BookingFailure'
-          example: {errors: {service_mode: ['must be one of audio_call, video_call for specialist_consultation']}}
+          examples:
+            serviceMode:
+              value: {errors: {service_mode: ['must be one of audio_call, video_call for specialist_consultation']}}
+            notice:
+              value: {errors: {appointment_date_time: [Specialist appointments must be booked at least 90 minutes in advance]}}
+            category:
+              value: {errors: {provider_id: [Selected doctor does not fall under the priority category. Please select a doctor listed as a specialist]}}
+            speciality:
+              value: {errors: {provider_id: [does not have a doctor with matching speciality for the selected packages]}}
+            priorityDisabled:
+              value: {errors: {package_ids: [Priority consultation is disabled for the selected package]}}
+            notEnabled:
+              value: {errors: {benefit_type: [this service is not enabled for you]}}
+            missingMode:
+              value: {msg: "service mode can't be blank", recall: false}
     ConsultationBookingConflict:
-      description: Duplicate booking or booking error.
+      description: |
+        `{"errors": {"messages": ["customer has an ongoing appointment for same package and
+        provider for same slot"]}}`: a duplicate. Show the member the existing booking.
+
+        `{"msg": "failed to create booking please try again later", "recall": false}`: an
+        unexpected error. Retry once (after checking your webhooks for the booking), then
+        contact hlthstack.
+
+        `{"msg": "...", "id": "..."}` (for example `failed to confirm booking`, `Insufficient
+        wallet balance. Please retry the booking.`): the booking was created but could not be
+        confirmed against the benefit.
       content:
         application/json:
           schema:
             anyOf:
               - $ref: '#/components/schemas/ErrorMessages'
               - $ref: '#/components/schemas/BookingFailure'
-          example: {errors: {messages: [customer has an ongoing appointment for same package and provider for same slot]}}
+          examples:
+            duplicate:
+              value: {errors: {messages: [customer has an ongoing appointment for same package and provider for same slot]}}
+            unexpected:
+              value: {msg: failed to create booking please try again later, recall: false}
+            notConfirmed:
+              value: {msg: failed to confirm booking, id: EKI0000000001700000000}
     PreRegistrationAccepted:
       description: Accepted for processing. Poll `getPreRegistrationStatus` with `request_id`.
       content:
@@ -3305,7 +3495,7 @@ components:
       description: A provider. Doctor fields are present for consultation packages. More keys may be present.
       additionalProperties: true
       properties:
-        provider_id: {type: integer, description: "Send this when booking or rescheduling."}
+        provider_id: {type: integer, description: "Send this when booking or rescheduling. For consultations, each provider is one doctor."}
         provider_name: {type: [string, 'null']}
         locality: {type: [string, 'null']}
         city: {type: [string, 'null']}
@@ -3332,6 +3522,8 @@ components:
         total_mrp: {type: [number, string, 'null']}
         report_turn_around_time: {}
         disrupted_dates: {}
+        is_disrupted: {type: [boolean, 'null'], description: "True when the provider has an active disruption; show `disruption_reason`."}
+        disruption_reason: {type: [string, 'null'], description: "Member-facing reason when `is_disrupted` is true."}
         provider_slots:
           type: [object, 'null']
           description: Deprecated. Use `listSlots`.
@@ -3530,8 +3722,9 @@ components:
       description: |
         Appointment status. Health checkups: `payment_pending`, `new`, `confirmed`, `rejected`, `noshow`,
         `cancelled`, `rescheduled`, `completed`, `verification_required`,
-        `partially_received`, `received`. Consultations: `new`, `confirmed`, `rejected`,
-        `noshow`, `cancelled`, `rescheduled`, `completed`, `received`. Treat unknown values
+        `partially_received`, `received`. Consultations: `payment_pending` (create response
+        and GET only, never by webhook), `new`, `confirmed`, `rejected`, `noshow`,
+        `cancelled`, `rescheduled`, `completed`, `received`. Treat unknown values
         gracefully.
     AppointmentDetails:
       type: object
@@ -3568,7 +3761,7 @@ components:
         voucher_api_url:
           type: string
           format: uri
-          description: Present once the appointment is confirmed.
+          description: Present once the appointment is confirmed. Online consultations have no voucher, so ignore it for `specialist_consultation`.
         phlebo_name: {type: string, description: "Present once confirmed, if a phlebotomist is assigned."}
         phlebo_number: {type: string}
         reports:
@@ -3591,7 +3784,7 @@ components:
         hospital_name: {type: [string, 'null']}
         hospital_location: {type: [string, 'null']}
         hospital_address: {type: [string, 'null']}
-        meeting_link: {type: [string, 'null'], description: "Video consultations only."}
+        meeting_link: {type: [string, 'null'], description: "Video consultations only. `null` until the doctor confirms; take it from the latest `confirmed` webhook or from `getSpecialistConsultation`."}
         payment: {$ref: '#/components/schemas/AppointmentPayment'}
     LabResultsPayload:
       type: object
@@ -3644,13 +3837,13 @@ components:
       properties:
         name: {type: string, pattern: '\S'}
         api_customer_id: {type: string, pattern: '^[a-zA-Z0-9]+$', description: "Your id for the member. Unique within the request."}
-        mobile_number: {type: string, pattern: '^[0-9]{10}$', description: "10 digits without +91."}
+        mobile_number: {type: string, pattern: '^[0-9]{10}$', description: "10 digits without +91. The doctor phones this number for `audio_call` consultations (for several customers in one request, the first customer's number is used for all)."}
         gender: {type: string, enum: [male, female, non-binary]}
         dob: {type: string, format: date, description: "At least 1 year before today."}
         package_ids: {type: array, items: {type: [integer, string]}}
     CreateInclinicConsultationRequest:
       type: object
-      required: [provider_id, appointment_date_time, customers, address]
+      required: [provider_id, appointment_date_time, service_mode, customers, address]
       properties:
         appointment_date_time: {type: string, format: date-time, description: "Later than now."}
         service_mode: {type: string, enum: [at_provider_location]}
@@ -3665,7 +3858,7 @@ components:
         subscription_id: {type: string}
     CreateSpecialistConsultationRequest:
       type: object
-      required: [provider_id, customers]
+      required: [provider_id, service_mode, customers]
       properties:
         appointment_date_time:
           type: string
@@ -3687,9 +3880,12 @@ components:
       properties:
         provider_id: {type: [integer, string]}
         booking_id: {type: string}
-        status: {type: string, enum: [confirmed]}
-        payment_link: {type: string, format: uri}
-        payment_link_expires_at: {type: string, format: date-time}
+        status: {type: string, enum: [confirmed], description: "Paid in full from the member's benefit. Not the doctor's confirmation."}
+        payment_link: {type: string, format: uri, description: "Present when the member must pay part of the fee."}
+        payment_link_expires_at:
+          type: string
+          format: date-time
+          description: The link normally expires at 17:00 IST on the day before the slot. For bookings made close to the slot it can be much shorter, down to about 15 minutes. Always use this value.
         customers:
           type: array
           items:
@@ -3700,7 +3896,7 @@ components:
               api_customer_id: {type: string}
               package_ids: {type: array, items: {type: [integer, string]}}
               appointment_id: {type: string}
-              consultation_status: {type: string}
+              consultation_status: {type: string, description: "`payment_pending` while the member's payment is due, otherwise usually `new`."}
               customer_plan_id: {type: [integer, 'null']}
               subscription_id: {type: [string, 'null']}
     ConsultationDetails:
@@ -3734,7 +3930,7 @@ components:
           type: array
           description: Online consultations only.
           items: {$ref: '#/components/schemas/FileLink'}
-        meeting_link: {type: [string, 'null'], description: "Video consultations only."}
+        meeting_link: {type: [string, 'null'], description: "Video consultations only. `null` until the doctor confirms; take it from the latest `confirmed` webhook or from `getSpecialistConsultation`."}
 
     # ---------- ePharmacy
     CustomerDetailsRef:
@@ -4623,7 +4819,7 @@ components:
         status:
           type: string
           enum: [initialized, scheduled, inprogress, completed, failed]
-          description: Rows are processed while `inprogress`; results are final at `completed`.
+          description: Rows are processed while `inprogress`; results are final at `completed`. `failed` is also final - processing stopped part-way, and rows already applied are in `success_records`.
         success_records:
           type: array
           items: {$ref: '#/components/schemas/PreRegistrationSuccessRecord'}

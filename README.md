@@ -77,6 +77,9 @@ Runnable scripts: [`examples/api/`](examples/api/).
 
 ## Reference
 
+- Getting started (access to go-live): https://github.com/hlthstack/integration-guide/blob/main/docs/getting-started.md
+- API reference: https://developers.hlthstack.io
+- Postman docs, with code samples and a Run in Postman button: https://documenter.getpostman.com/view/32733686/2sBYHbqvwh
 - REST API guides: https://github.com/hlthstack/integration-guide/tree/main/docs
 - OpenAPI spec: https://github.com/hlthstack/integration-guide/blob/main/openapi/openapi.yaml
   (a copy is in [`openapi/openapi.yaml`](openapi/openapi.yaml))

@@ -1658,10 +1658,10 @@ export interface components {
          */
         AppointmentId: string;
         /**
-         * @description A benefit type. The service must also be enabled on your plan.
+         * @description The service. It must also be enabled on your plan, otherwise the call returns 403.
          * @enum {string}
          */
-        BenefitType: "ahc" | "dental" | "vision" | "fitness" | "pharmacy" | "eap" | "family_doctor" | "pre_employment" | "covid_vaccination" | "flu_vaccination" | "other_health_checks" | "rtpcr" | "specialist_consultation" | "pregnancy_care" | "ohc" | "annual_calendar" | "health_coach" | "health_insurance" | "face_to_face_consults" | "daycare_surgeries" | "ambulance_on_demand" | "supplementary_insurance" | "elder_care" | "home_care" | "healthcare_financing" | "nhc" | "diet_consultation" | "inclinic_consultation" | "fertility_treatment" | "consultation24x7" | "imaging_services" | "occupational_medical_rooms" | "cancer_screening" | "onsite_camp" | "filler_benefit_one" | "filler_benefit_two" | "filler_benefit_three" | "filler_benefit_four" | "prescribed_diagnostics" | "ppmc" | "weight_management_program" | "diabetic_program" | "bp_program" | "cervical_vaccination" | "physiotherapy" | "prescribed_diagnostics_flow" | "vision_wearable" | "maternity_care" | "gym_subscription" | "fitness_products" | "wellbeing_marketplace" | "pcos_program" | "parenting_program" | "midlife_health_program" | "general_health_program" | "fertility_care" | "cholesterol_program" | "financial_wellbeing";
+        BenefitType: "ahc" | "dental" | "vision" | "fitness" | "pharmacy" | "flu_vaccination" | "specialist_consultation" | "inclinic_consultation" | "consultation24x7" | "nhc";
         ProvidersResponse: {
             providers: components["schemas"]["Provider"][];
             /** @description In-clinic consultations only. */
@@ -3330,10 +3330,10 @@ export interface components {
         /** @description HS256 JWT signed with your webhook secret. See the webhooks guide for the claims. */
         WebhookSignature: string;
         /**
-         * @description The service to search for. Common values: `ahc` (health checks), `dental`, `vision`,
-         *     `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The value must be a
-         *     known benefit type (see `BenefitType`), and the service must be enabled for your
-         *     plan (otherwise 403). `benefit_type` is accepted as an alias.
+         * @description The service to search for: `ahc` (health checks), `dental`, `vision`,
+         *     `flu_vaccination`, `inclinic_consultation`, `specialist_consultation` and the other
+         *     values listed. The service must be enabled for your plan (otherwise 403).
+         *     `benefit_type` is accepted as an alias.
          */
         ServiceName: components["schemas"]["BenefitType"];
         /**
@@ -3442,10 +3442,10 @@ export interface operations {
         parameters: {
             query: {
                 /**
-                 * @description The service to search for. Common values: `ahc` (health checks), `dental`, `vision`,
-                 *     `flu_vaccination`, `covid_vaccination`, `inclinic_consultation`. The value must be a
-                 *     known benefit type (see `BenefitType`), and the service must be enabled for your
-                 *     plan (otherwise 403). `benefit_type` is accepted as an alias.
+                 * @description The service to search for: `ahc` (health checks), `dental`, `vision`,
+                 *     `flu_vaccination`, `inclinic_consultation`, `specialist_consultation` and the other
+                 *     values listed. The service must be enabled for your plan (otherwise 403).
+                 *     `benefit_type` is accepted as an alias.
                  */
                 service_name: components["parameters"]["ServiceName"];
                 /**

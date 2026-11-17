@@ -191,7 +191,7 @@ Header problems return `400 {"message": "..."}`: `API-ENTITY-ID header cannot be
 
 The whole flow is [`examples/api/book-health-checkup.mjs`](../examples/api/book-health-checkup.mjs).
 Package ids are shared at onboarding; `service_name` is `ahc` for health checks (also
-`dental`, `vision`, `flu_vaccination`, `covid_vaccination`). Full details:
+`dental`, `vision`, `flu_vaccination`). Full details:
 [health-checkups.md](https://github.com/hlthstack/integration-guide/blob/main/docs/health-checkups.md).
 
 ### 1. List providers

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: hlthstack API
-  version: 1.0.1
+  version: 1.0.2
   summary: Partner REST API for health checkups, lab tests, doctor consultations, ePharmacy, benefit wallets and member pre-registration.
   description: |
     The hlthstack API lets partners book and manage health benefits for their members:

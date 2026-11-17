@@ -24,7 +24,7 @@ REST reference and guides: https://github.com/hlthstack/integration-guide
 Install straight from GitHub:
 
 ```sh
-npm install github:hlthstack/js#v1.0.1
+npm install github:hlthstack/js#v1.0.2
 ```
 
 Pin a release tag, as above, for reproducible installs. Releases and their changes are

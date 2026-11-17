@@ -28,7 +28,7 @@ them: the plain API guide ends with a mapping to SDK methods.
 ## SDK quickstart
 
 ```sh
-npm install github:hlthstack/js#v1.0.1
+npm install github:hlthstack/js#v1.0.2
 ```
 
 ```ts

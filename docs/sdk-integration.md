@@ -14,10 +14,25 @@ benefit wallets and member pre-registration.
 
 Prefer raw HTTP calls without a dependency? See the [plain REST API guide](api-integration.md).
 
+> [!CAUTION]
 > **Server-side only.** Your API credentials, access tokens, entity secret key and webhook
 > secret must never be shipped to a browser or mobile app. Call hlthstack from your backend.
 
-REST reference and guides: https://github.com/hlthstack/integration-guide
+**See also:** [REST reference and guides](https://github.com/hlthstack/integration-guide).
+
+## On this page
+
+1. [Install](#install)
+2. [Quickstart](#quickstart)
+3. [Configuration](#configuration): [environments](#environments),
+   [authentication](#authentication), [multi-entity partners](#multi-entity-partners),
+   [per-request options](#per-request-options)
+4. [API](#api): [file uploads](#file-uploads), [binary responses](#binary-responses),
+   [pre-registration](#pre-registration), [staging simulators](#staging-simulators)
+5. [Validation](#validation)
+6. [Errors](#errors)
+7. [Webhooks](#webhooks)
+8. [Development](#development)
 
 ## Install
 
@@ -27,14 +42,19 @@ Install straight from GitHub:
 npm install github:hlthstack/js#v1.0.2
 ```
 
-Pin a release tag, as above, for reproducible installs. Releases and their changes are
-listed in [CHANGELOG.md](../CHANGELOG.md).
+> [!TIP]
+> Pin a release tag, as above, for reproducible installs. Releases and their changes are
+> listed in [CHANGELOG.md](../CHANGELOG.md).
 
-npm builds the package (`dist/`) during the install, so the first install takes a little
-longer. Import it as `hlthstack` either way. Publishing to the npm registry
-(`npm install hlthstack`) is planned; the GitHub install keeps working when it lands.
+- npm builds the package (`dist/`) during the install, so the first install takes a little
+  longer.
+- Import it as `hlthstack` either way.
+- Publishing to the npm registry (`npm install hlthstack`) is planned; the GitHub install keeps
+  working when it lands.
 
 ## Quickstart
+
+Find a provider, pick a slot, book a home-collection health checkup and read the booking back:
 
 ```ts
 import { Hlthstack } from 'hlthstack';
@@ -102,6 +122,8 @@ The same code is in [`examples/sdk/quickstart.ts`](../examples/sdk/quickstart.ts
 
 ## Configuration
 
+Every constructor option, with a comment on what it does:
+
 ```ts
 new Hlthstack({
   username: 'example-user',        // issued by hlthstack; required unless you only use pre-registration
@@ -125,8 +147,9 @@ new Hlthstack({
 | `production` | `https://api.hlthstack.io` |
 | `staging` | `https://staging-api.hlthstack.io` |
 
-Credentials, package ids, plan ids, entity ids and webhook secrets are different per
-environment.
+> [!NOTE]
+> Credentials, package ids, plan ids, entity ids and webhook secrets are different per
+> environment.
 
 ### Authentication
 
@@ -139,11 +162,14 @@ You never call the token endpoint yourself. The client:
 
 `client.auth.getAccessToken({ forceRefresh })` is available if you need the token itself.
 
-`client.preRegistration.*` uses separate credentials (`preRegistrationUsername` /
-`preRegistrationPassword`) and its own token: the client requests it from
-`GET /api/pre_registration/access-token`, sends it as `X-EKINCARE-KEY`, and caches, shares
-and refreshes it the same way. `client.preRegistration.getAccessToken({ forceRefresh })`
-returns it.
+**Pre-registration token.** `client.preRegistration.*` uses separate credentials
+(`preRegistrationUsername` / `preRegistrationPassword`) and its own token. The client:
+
+- requests it from `GET /api/pre_registration/access-token`;
+- sends it as `X-EKINCARE-KEY`;
+- caches, shares and refreshes it the same way.
+
+`client.preRegistration.getAccessToken({ forceRefresh })` returns it.
 
 ### Multi-entity partners
 
@@ -173,70 +199,113 @@ Every method takes an optional last argument:
 
 ## API
 
-Method names follow the spec's `operationId`s, grouped by area.
+Method names follow the spec's `operationId`s, grouped by area. Where a short method name
+stands for a longer `operationId` (for example `create` for `createAppointment`), Notes names it.
 
-| Area | Method | Endpoint |
-|---|---|---|
-| auth | `getAccessToken` | `GET /api/get-access-token` |
-| appointments | `listProviders` | `GET /api/providers` |
-| | `listSlots(providerId, benefitType, params)` | `GET /api/providers/{provider_id}/{benefit_type}/slots` |
-| | `create` (createAppointment) | `POST /api/appointments` |
-| | `get` (getAppointment) | `GET /api/appointments` |
-| | `rescheduleBooking(bookingId, params)` | `PATCH /api/bookings/{booking_id}/reschedule` |
-| | `cancelBooking(bookingId, { reason }?)` | `PATCH /api/bookings/{booking_id}/cancel` |
-| | `reschedule(appointmentId, params)` | `PATCH /api/appointments/{appointment_id}/reschedule` |
-| | `cancel(appointmentId, { reason }?)` | `PATCH /api/appointments/{appointment_id}/cancel` |
-| | `getVoucher(appointmentId)` → `ArrayBuffer` | `GET /api/appointments/{appointment_id}/voucher` |
-| | `getReports(appointmentId)` | `GET /api/appointments/{appointment_id}/reports` |
-| | `getLabResults(appointmentId)` | `GET /api/appointments/{appointment_id}/lab_results` |
-| consultations | `listInclinicProviders` | `GET /api/consultations/inclinic_consultation/providers` |
-| | `listSpecialistProviders` | `GET /api/consultations/specialist_consultation/providers` |
-| | `listSlots(providerId, benefitType, params)` | same as `appointments.listSlots` |
-| | `createInclinic` | `POST /api/consultations/inclinic_consultation` |
-| | `createSpecialist` | `POST /api/consultations/specialist_consultation` |
-| | `getInclinic(appointmentId)` | `GET /api/consultations/inclinic_consultation/{appointment_id}` |
-| | `getSpecialist(appointmentId)` | `GET /api/consultations/specialist_consultation/{appointment_id}` |
-| | `reschedule(appointmentId, params)` | `PATCH /api/consultations/{appointment_id}/reschedule` |
-| | `cancel(appointmentId)` | `PATCH /api/consultations/{appointment_id}/cancel` |
-| | `getSummaryAndPrescription(appointmentId)` | `GET /api/consultations/{appointment_id}/summary_and_prescription` |
-| | `getVoucher(appointmentId)` → `ArrayBuffer` | `GET /api/consultations/{appointment_id}/voucher` |
-| | `uploadDocuments(appointmentId, documents)` | `POST /api/consultations/{appointment_id}/upload_documents` (multipart) |
-| pharmacy | `searchMedicines` | `GET /api/epharmacy/medicines/search` |
-| | `digitizePrescription(params, { idempotencyKey })` | `POST /api/prescriptions/digitize` (multipart) |
-| | `getPrescriptionDigitization(requestId)` | `GET /api/prescriptions/digitize/{request_id}` |
-| | `getCart` | `GET /api/epharmacy/cart` |
-| | `updateCart` | `PATCH /api/epharmacy/cart` (JSON, or multipart with `prescription_files`) |
-| | `getFulfillmentOptions` | `GET /api/epharmacy/fulfillment_options` |
-| | `getOrderPaymentDetails` | `POST /api/epharmacy/orders/payment_details` |
-| | `createOrder` | `POST /api/epharmacy/orders` |
-| | `listOrders` | `GET /api/epharmacy/orders` |
-| | `getOrder(orderId, params)` | `GET /api/epharmacy/orders/{order_id}` |
-| | `cancelOrder(orderId, params)` | `PATCH /api/epharmacy/orders/{order_id}/cancel` |
-| | `confirmOrder(orderId, params)` | `POST /api/epharmacy/orders/{order_id}/confirm` |
-| wallet | `getCustomerWallet(companySlug, params)` | `GET /api/{company_slug}/customers/wallet` |
-| | `listCustomerPlans(companySlug, params)` | `GET /api/{company_slug}/customers/plans` |
-| preRegistration | `getAccessToken` (getPreRegistrationAccessToken) | `GET /api/pre_registration/access-token` |
-| | `create` (createPreRegistrations) | `POST /v1/corporate/pre_registrations` |
-| | `update` (updatePreRegistrations) | `POST /v1/corporate/pre_registrations/update` |
-| | `deactivate` (deactivatePreRegistrations) | `POST /v1/corporate/pre_registrations/deactivate` |
-| | `getStatus(requestId)` (getPreRegistrationStatus) | `GET /v1/corporate/pre_registrations/{request_id}/status` |
-| testing (staging only) | `simulateAppointmentStatus(appointmentId, params)` | `POST /api/appointments/{appointment_id}/update_status` |
-| | `simulateConsultationStatus(appointmentId, params)` | `PATCH /api/consultations/{appointment_id}/update_status` |
-| | `simulateOrderStatus(orderId, params)` | `PATCH /api/epharmacy/orders/{order_id}/update_status` |
-
-Path parameters are positional; query parameters and JSON bodies are a single object with
-the API's own field names. On the ePharmacy GET endpoints, pass the member as
-`customer_details: { api_customer_id }` (sent as `customer_details[api_customer_id]`).
+- **Path parameters** are positional.
+- **Query parameters and JSON bodies** are a single object with the API's own field names.
+- **ePharmacy GET endpoints:** pass the member as `customer_details: { api_customer_id }`
+  (sent as `customer_details[api_customer_id]`).
 
 Request and response types are exported by name (`CreateAppointmentParams`,
 `BookingDetails`, `CartResponse`, ...), and the full generated `paths`, `operations` and
 `components` types are exported too.
 
+**`client.auth`**
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `getAccessToken` | `GET /api/get-access-token` | |
+
+**`client.appointments`**
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `listProviders` | `GET /api/providers` | |
+| `listSlots(providerId, benefitType, params)` | `GET /api/providers/{provider_id}/{benefit_type}/slots` | |
+| `create` | `POST /api/appointments` | `createAppointment` |
+| `get` | `GET /api/appointments` | `getAppointment` |
+| `rescheduleBooking(bookingId, params)` | `PATCH /api/bookings/{booking_id}/reschedule` | |
+| `cancelBooking(bookingId, { reason }?)` | `PATCH /api/bookings/{booking_id}/cancel` | |
+| `reschedule(appointmentId, params)` | `PATCH /api/appointments/{appointment_id}/reschedule` | |
+| `cancel(appointmentId, { reason }?)` | `PATCH /api/appointments/{appointment_id}/cancel` | |
+| `getVoucher(appointmentId)` | `GET /api/appointments/{appointment_id}/voucher` | → `ArrayBuffer` |
+| `getReports(appointmentId)` | `GET /api/appointments/{appointment_id}/reports` | |
+| `getLabResults(appointmentId)` | `GET /api/appointments/{appointment_id}/lab_results` | |
+
+**`client.consultations`**
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `listInclinicProviders` | `GET /api/consultations/inclinic_consultation/providers` | |
+| `listSpecialistProviders` | `GET /api/consultations/specialist_consultation/providers` | |
+| `listSlots(providerId, benefitType, params)` | same as `appointments.listSlots` | |
+| `createInclinic` | `POST /api/consultations/inclinic_consultation` | |
+| `createSpecialist` | `POST /api/consultations/specialist_consultation` | |
+| `getInclinic(appointmentId)` | `GET /api/consultations/inclinic_consultation/{appointment_id}` | |
+| `getSpecialist(appointmentId)` | `GET /api/consultations/specialist_consultation/{appointment_id}` | |
+| `reschedule(appointmentId, params)` | `PATCH /api/consultations/{appointment_id}/reschedule` | |
+| `cancel(appointmentId)` | `PATCH /api/consultations/{appointment_id}/cancel` | |
+| `getSummaryAndPrescription(appointmentId)` | `GET /api/consultations/{appointment_id}/summary_and_prescription` | |
+| `getVoucher(appointmentId)` | `GET /api/consultations/{appointment_id}/voucher` | → `ArrayBuffer` |
+| `uploadDocuments(appointmentId, documents)` | `POST /api/consultations/{appointment_id}/upload_documents` | multipart |
+
+**`client.pharmacy`**
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `searchMedicines` | `GET /api/epharmacy/medicines/search` | |
+| `digitizePrescription(params, { idempotencyKey })` | `POST /api/prescriptions/digitize` | multipart |
+| `getPrescriptionDigitization(requestId)` | `GET /api/prescriptions/digitize/{request_id}` | |
+| `getCart` | `GET /api/epharmacy/cart` | |
+| `updateCart` | `PATCH /api/epharmacy/cart` | JSON, or multipart with `prescription_files` |
+| `getFulfillmentOptions` | `GET /api/epharmacy/fulfillment_options` | |
+| `getOrderPaymentDetails` | `POST /api/epharmacy/orders/payment_details` | |
+| `createOrder` | `POST /api/epharmacy/orders` | |
+| `listOrders` | `GET /api/epharmacy/orders` | |
+| `getOrder(orderId, params)` | `GET /api/epharmacy/orders/{order_id}` | |
+| `cancelOrder(orderId, params)` | `PATCH /api/epharmacy/orders/{order_id}/cancel` | |
+| `confirmOrder(orderId, params)` | `POST /api/epharmacy/orders/{order_id}/confirm` | |
+
+**`client.wallet`**
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `getCustomerWallet(companySlug, params)` | `GET /api/{company_slug}/customers/wallet` | |
+| `listCustomerPlans(companySlug, params)` | `GET /api/{company_slug}/customers/plans` | |
+
+**`client.preRegistration`**
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `getAccessToken` | `GET /api/pre_registration/access-token` | `getPreRegistrationAccessToken` |
+| `create` | `POST /v1/corporate/pre_registrations` | `createPreRegistrations` |
+| `update` | `POST /v1/corporate/pre_registrations/update` | `updatePreRegistrations` |
+| `deactivate` | `POST /v1/corporate/pre_registrations/deactivate` | `deactivatePreRegistrations` |
+| `getStatus(requestId)` | `GET /v1/corporate/pre_registrations/{request_id}/status` | `getPreRegistrationStatus` |
+
+**`client.testing`** (staging only, see [Staging simulators](#staging-simulators))
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| `simulateAppointmentStatus(appointmentId, params)` | `POST /api/appointments/{appointment_id}/update_status` | |
+| `simulateConsultationStatus(appointmentId, params)` | `PATCH /api/consultations/{appointment_id}/update_status` | |
+| `simulateOrderStatus(orderId, params)` | `PATCH /api/epharmacy/orders/{order_id}/update_status` | |
+
 ### File uploads
 
-Upload methods accept a `Blob`/`File`, raw bytes (`Buffer`, `Uint8Array`, `ArrayBuffer`), or
-`{ data, filename, contentType }`. The API accepts PDF, JPEG and PNG; give raw bytes a
-filename with the right extension (or a `contentType`).
+Upload methods accept any of:
+
+- a `Blob`/`File`;
+- raw bytes (`Buffer`, `Uint8Array`, `ArrayBuffer`);
+- `{ data, filename, contentType }`.
+
+> [!IMPORTANT]
+> The API accepts PDF, JPEG and PNG; give raw bytes a filename with the right extension (or a
+> `contentType`).
+
+Uploading consultation documents, a prescription for digitization, and prescription files on
+the cart:
 
 ```ts
 import { readFile } from 'node:fs/promises';
@@ -273,8 +342,11 @@ await writeFile('voucher.pdf', Buffer.from(pdf));
 ### Pre-registration
 
 Register, update and deactivate members and dependants in bulk (at most 250 rows per call).
-Each write returns a `request_id`; poll `getStatus` until `status` is `completed`. Entity
-options (`entityId`, `secretKey`) don't apply here: each row names its `company_id`.
+
+- Each write returns a `request_id`; poll `getStatus` until `status` is `completed`.
+- Entity options (`entityId`, `secretKey`) don't apply here: each row names its `company_id`.
+
+Creating one employee and polling until the request completes:
 
 ```ts
 const client = new Hlthstack({
@@ -302,17 +374,23 @@ while (result.status !== 'completed') {
 console.log(result.success_records.length, result.failure_records.map((r) => r.errors));
 ```
 
-Every key the spec marks required must be present in each `create` row, even when empty:
-the API silently drops rows that miss one, and the types enforce this. `update` takes only
-the identifier and the fields to change; `deactivate` takes employee emails and dependant
-mobile numbers. See the
-[pre-registration guide](https://github.com/hlthstack/integration-guide/blob/main/docs/pre-registration.md).
+> [!WARNING]
+> Every key the spec marks required must be present in each `create` row, even when empty:
+> the API silently drops rows that miss one, and the types enforce this.
+
+- `update` takes only the identifier and the fields to change.
+- `deactivate` takes employee emails and dependant mobile numbers.
+
+**See also:** [pre-registration guide](https://github.com/hlthstack/integration-guide/blob/main/docs/pre-registration.md).
 
 ### Staging simulators
 
 `client.testing.*` moves bookings and orders through their lifecycle on **staging** and fires
-the same webhooks real updates would. These routes don't exist in production, and the client
-refuses to call them when `environment` is `production`.
+the same webhooks real updates would.
+
+> [!NOTE]
+> These routes don't exist in production, and the client refuses to call them when
+> `environment` is `production`.
 
 ```ts
 const staging = new Hlthstack({ username, password, environment: 'staging' });
@@ -323,7 +401,7 @@ await staging.testing.simulateAppointmentStatus('APT1A2B3C4D5', { status: 'confi
 
 Before any network call (and before fetching a token), every method checks its input
 against the rules in the OpenAPI spec and throws `HlthstackValidationError` listing **every**
-problem it found:
+problem it found. It checks:
 
 - required fields, types (including nullable fields), enums;
 - patterns, exactly as the server applies them (some are deliberately unanchored), lengths,
@@ -338,6 +416,8 @@ problem it found:
   future. "Today" is the API's calendar day in India Standard Time;
 - pincodes: an Indian address must not mention a 6-digit pincode other than its own;
 - uploads: file count, size and type (give raw bytes a `filename` or `contentType`).
+
+Catching a validation error and reading its problems:
 
 ```ts
 import { HlthstackValidationError } from 'hlthstack';
@@ -369,13 +449,17 @@ try {
 }
 ```
 
-`path` uses the method's own field names (`customers[0].api_customer_id`); it is empty when a
-problem concerns the input as a whole (for example "send at least one of api_customer_id,
-customer_id"). `rule` is the JSON Schema keyword or the spec's rule kind that failed.
+In each entry of `errors`:
 
-Checks that need data stored on the server, such as plan benefits, package ids, slot
-availability, whether an order or appointment exists, or whether an amount matches the
-order, are still made by the API and come back as `HlthstackError`.
+- `path` uses the method's own field names (`customers[0].api_customer_id`); it is empty when a
+  problem concerns the input as a whole (for example "send at least one of api_customer_id,
+  customer_id").
+- `rule` is the JSON Schema keyword or the spec's rule kind that failed.
+
+> [!NOTE]
+> Checks that need data stored on the server, such as plan benefits, package ids, slot
+> availability, whether an order or appointment exists, or whether an amount matches the
+> order, are still made by the API and come back as `HlthstackError`.
 
 **Escape hatch.** If the API accepts something this version of the library rejects, turn
 validation off for one call or for the client, and please open an issue:
@@ -408,23 +492,39 @@ try {
 }
 ```
 
-The API uses several error body shapes (`{errors: {field: [...]}}`, `{errors: {messages:
-[...]}}`, `{errors: [...]}`, `{message}`, `{success: false, message}`, `{msg, recall}`,
-`{error}`). `body` keeps the original; `messages` flattens all of them into strings.
+The API uses several error body shapes. `body` keeps the original; `messages` flattens all of
+them into strings:
 
-Some ePharmacy responses are HTTP 200 with nested `success: false` (for example
-`getFulfillmentOptions`); those are returned, not thrown, so check the flags.
+- `{errors: {field: [...]}}`
+- `{errors: {messages: [...]}}`
+- `{errors: [...]}`
+- `{message}`
+- `{success: false, message}`
+- `{msg, recall}`
+- `{error}`
 
-The client does not retry automatically, except once after a `401`. Retry 5xx, 409 and
-connection errors with backoff yourself, but don't blindly retry `appointments.create` or
-consultation creation: check with `appointments.get` or your webhooks first. See the
-[errors guide](https://github.com/hlthstack/integration-guide/blob/main/docs/errors.md).
+> [!WARNING]
+> Some ePharmacy responses are HTTP 200 with nested `success: false` (for example
+> `getFulfillmentOptions`); those are returned, not thrown, so check the flags.
+
+**Retrying.** The client does not retry automatically, except once after a `401`.
+
+- Retry 5xx, 409 and connection errors with backoff yourself.
+- Don't blindly retry `appointments.create` or consultation creation: check with
+  `appointments.get` or your webhooks first.
+
+**See also:** [errors guide](https://github.com/hlthstack/integration-guide/blob/main/docs/errors.md).
 
 ## Webhooks
 
 hlthstack signs every webhook with an HS256 JWT in the `Signature` header. The JWT does not
-cover the body, so `verifyWebhookSignature` checks the signature, that the ids in the claims
-match the body, and that the `timestamp` claim is recent (5 minutes by default):
+cover the body, so `verifyWebhookSignature` checks:
+
+1. the signature;
+2. that the ids in the claims match the body;
+3. that the `timestamp` claim is recent (5 minutes by default).
+
+An Express receiver that verifies each webhook before acknowledging it:
 
 ```ts
 import express from 'express';
@@ -464,12 +564,15 @@ the seven webhook bodies:
 | `PharmacyPostBillingWebhook` | `post_billing` | Partner-collected orders |
 | `PrescriptionDigitizedWebhook` | `digitization_results` | Prescription digitization finished |
 
-Appointment and pharmacy events share a URL: appointment payloads have `appointment_id`,
-pharmacy payloads have `order_id`. Delivery order isn't guaranteed; use `claims.timestamp`
-and the GET endpoints to reconcile. See the
-[webhooks guide](https://github.com/hlthstack/integration-guide/blob/main/docs/webhooks.md).
+- Appointment and pharmacy events share a URL: appointment payloads have `appointment_id`,
+  pharmacy payloads have `order_id`.
+- Delivery order isn't guaranteed; use `claims.timestamp` and the GET endpoints to reconcile.
+
+**See also:** [webhooks guide](https://github.com/hlthstack/integration-guide/blob/main/docs/webhooks.md).
 
 ## Development
+
+Install, type-check, test and build:
 
 ```sh
 npm install
@@ -478,18 +581,20 @@ npm test
 npm run build
 ```
 
-[`openapi/openapi.yaml`](../openapi/openapi.yaml) is a copy of the spec from
-[hlthstack/integration-guide](https://github.com/hlthstack/integration-guide), which is the
-source of truth. After updating it, run `npm run generate` to regenerate
-`src/generated/openapi.ts` (types) and `src/generated/validation.ts` (the request schemas and
-`x-hlthstack-rules` used for validation), then add or adjust methods; `test/coverage.test.ts`
-fails if an operation has no method. `scripts/build-validation.mjs` stops with an error when
-the spec uses a schema keyword, format or rule it does not support: extend it and
-`src/validation.ts` together.
+**Updating the spec.** [`openapi/openapi.yaml`](../openapi/openapi.yaml) is a copy of the spec
+from [hlthstack/integration-guide](https://github.com/hlthstack/integration-guide), which is the
+source of truth. After updating it:
 
-`npm install` (and `npm install github:hlthstack/js` in other projects) runs the `prepare`
-script, which builds `dist/`.
+1. Run `npm run generate` to regenerate `src/generated/openapi.ts` (types) and
+   `src/generated/validation.ts` (the request schemas and `x-hlthstack-rules` used for
+   validation).
+2. Add or adjust methods; `test/coverage.test.ts` fails if an operation has no method.
+3. If `scripts/build-validation.mjs` stops with an error, the spec uses a schema keyword,
+   format or rule it does not support: extend it and `src/validation.ts` together.
 
-`test/api-examples.test.mjs` runs the plain-API examples in [`examples/api/`](../examples/api/)
-against a local mock server, so the [plain REST API guide](api-integration.md) stays correct.
+**Other notes:**
 
+- `npm install` (and `npm install github:hlthstack/js` in other projects) runs the `prepare`
+  script, which builds `dist/`.
+- `test/api-examples.test.mjs` runs the plain-API examples in [`examples/api/`](../examples/api/)
+  against a local mock server, so the [plain REST API guide](api-integration.md) stays correct.

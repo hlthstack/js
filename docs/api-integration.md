@@ -4,18 +4,23 @@ Call the hlthstack REST API directly from Node.js 18+ with the built-in `fetch`:
 runtime dependency (the webhook receiver uses Express). You handle token refresh, input
 validation and error parsing yourself; this guide shows small helpers for each.
 
-Every snippet here comes from the runnable scripts in [`examples/api/`](../examples/api/),
-which are tested against a mock server in
-[`test/api-examples.test.mjs`](../test/api-examples.test.mjs). The full reference is the [API reference](https://developers.hlthstack.io) (built from the
-[OpenAPI spec](https://github.com/hlthstack/integration-guide/blob/main/openapi/openapi.yaml))
-and the [integration guide](https://github.com/hlthstack/integration-guide/tree/main/docs).
-To try a call before writing code, use the [Postman docs](https://documenter.getpostman.com/view/32733686/2sBYHbrFjt): choose **Run in Postman**,
-pick the staging environment and enter your credentials.
+- **Tested snippets.** Every snippet here comes from the runnable scripts in
+  [`examples/api/`](../examples/api/), which are tested against a mock server in
+  [`test/api-examples.test.mjs`](../test/api-examples.test.mjs).
+- **Full reference.** The [API reference](https://developers.hlthstack.io) (built from the
+  [OpenAPI spec](https://github.com/hlthstack/integration-guide/blob/main/openapi/openapi.yaml))
+  and the [integration guide](https://github.com/hlthstack/integration-guide/tree/main/docs).
 
+> [!TIP]
+> To try a call before writing code, use the
+> [Postman docs](https://documenter.getpostman.com/view/32733686/2sBYHbrFjt): choose
+> **Run in Postman**, pick the staging environment and enter your credentials.
+
+> [!CAUTION]
 > **Server-side only.** Your API credentials, access tokens, entity secret key and webhook
 > secret must never be shipped to a browser or mobile app. Call hlthstack from your backend.
 
-Contents:
+## On this page
 
 1. [Environments and base URLs](#environments-and-base-urls)
 2. [Authentication](#authentication)
@@ -36,12 +41,14 @@ Contents:
 | Production | `https://api.hlthstack.io` |
 | Staging | `https://staging-api.hlthstack.io` |
 
-Credentials, package ids, plan ids, entity ids and webhook secrets are different per
-environment. Staging also has endpoints that move bookings through their lifecycle and fire
-real webhooks ([testing guide](https://github.com/hlthstack/integration-guide/blob/main/docs/testing.md)).
-Use a client timeout of 30-60 seconds.
+- Credentials, package ids, plan ids, entity ids and webhook secrets are different per
+  environment.
+- Staging also has endpoints that move bookings through their lifecycle and fire real webhooks
+  ([testing guide](https://github.com/hlthstack/integration-guide/blob/main/docs/testing.md)).
+- Use a client timeout of 30-60 seconds.
 
-The examples read their configuration from environment variables and default to staging:
+The examples read their configuration from environment variables and default to staging. To
+run one:
 
 ```sh
 export HLTHSTACK_BASE_URL=https://staging-api.hlthstack.io   # optional
@@ -49,6 +56,8 @@ export HLTHSTACK_USERNAME=example-user
 export HLTHSTACK_PASSWORD=example-password
 node examples/api/book-health-checkup.mjs
 ```
+
+The client picks up the base URL like this:
 
 ```js
 export const BASE_URL = process.env.HLTHSTACK_BASE_URL ?? 'https://staging-api.hlthstack.io';
@@ -60,13 +69,21 @@ export const BASE_URL = process.env.HLTHSTACK_BASE_URL ?? 'https://staging-api.h
    issued to you) returns `{ "access_token": "...", "expires_at": "2026-01-15T07:16:21Z" }`.
    Wrong credentials return `401 {"message": "Wrong credentials"}`.
 2. Send the token on every other call as `Authorization: Bearer <access_token>`.
-3. Tokens last **1 hour** and there is no refresh token: request a new one before
-   `expires_at`. A missing, invalid or expired token returns `401` with the plain-text body
-   `HTTP Token: Access denied.`
+3. Request a new token before `expires_at` (see below).
 
-`getToken()` caches the token until 5 minutes before it expires and makes concurrent callers
-share one token request. The same factory serves the pre-registration token
-([below](#pre-registration)), whose `expires_at` has a different format.
+> [!IMPORTANT]
+> Tokens last **1 hour** and there is no refresh token: request a new one before
+> `expires_at`. A missing, invalid or expired token returns `401` with the plain-text body
+> `HTTP Token: Access denied.`
+
+`getToken()` does this for you:
+
+- it caches the token until 5 minutes before it expires;
+- it makes concurrent callers share one token request;
+- the same factory serves the pre-registration token ([below](#pre-registration)), whose
+  `expires_at` has a different format.
+
+The token cache and the booking API's `getToken()`:
 
 ```js
 const REFRESH_EARLY_MS = 5 * 60 * 1000; // renew 5 minutes before expires_at
@@ -105,11 +122,22 @@ export const getToken = tokenCache(
 );
 ```
 
-`api(method, path, options)` adds the bearer token (and the [entity headers](#multi-entity-partners)),
-sends JSON bodies, fetches a new token and retries **once** on `401`, and throws an
-[`ApiError`](#errors) with the parsed body on any other non-2xx response. Options:
-`query` (object), `body` (JSON), `form` (`FormData`), `headers`, and `binary: true` to get a
-`Buffer` back.
+`api(method, path, options)` wraps every call. It:
+
+- adds the bearer token (and the [entity headers](#multi-entity-partners));
+- sends JSON bodies;
+- fetches a new token and retries **once** on `401`;
+- throws an [`ApiError`](#errors) with the parsed body on any other non-2xx response.
+
+| Option | What it is |
+|---|---|
+| `query` | Query parameters (object) |
+| `body` | Request body, sent as JSON |
+| `form` | A `FormData` for multipart requests |
+| `headers` | Extra headers |
+| `binary: true` | Get a `Buffer` back |
+
+The request helper and `api()`:
 
 ```js
 async function readBody(res) {
@@ -170,6 +198,8 @@ for another entity, send two headers on every call **except** `get-access-token`
 Without `API-ENTITY-ID`, calls act for the entity tied to the credentials. These headers are
 not used by [pre-registration](#pre-registration).
 
+Building the headers from environment variables, and overriding them for one call:
+
 ```js
 /** Multi-entity partners: sent on every call except the token endpoints. */
 function entityHeaders() {
@@ -182,23 +212,33 @@ function entityHeaders() {
 await api('POST', '/api/appointments', { body, headers: { 'API-ENTITY-ID': 'ENTITY_B_ID' } });
 ```
 
-Header problems return `400 {"message": "..."}`: `API-ENTITY-ID header cannot be blank`,
-`API-SECRET-KEY header cannot be blank`, `Invalid Entity`,
-`API integration not enabled for this entity`, `API-SECRET-KEY is invalid`. See
-[authentication.md](https://github.com/hlthstack/integration-guide/blob/main/docs/authentication.md#multi-entity-partners).
+Header problems return `400 {"message": "..."}` with one of these messages:
+
+- `API-ENTITY-ID header cannot be blank`
+- `API-SECRET-KEY header cannot be blank`
+- `Invalid Entity`
+- `API integration not enabled for this entity`
+- `API-SECRET-KEY is invalid`
+
+**See also:** [authentication.md](https://github.com/hlthstack/integration-guide/blob/main/docs/authentication.md#multi-entity-partners).
 
 ## Book a health checkup end to end
 
 The whole flow is [`examples/api/book-health-checkup.mjs`](../examples/api/book-health-checkup.mjs).
-Package ids are shared at onboarding; `service_name` is `ahc` for health checks (also
-`dental`, `vision`, `flu_vaccination`). Full details:
-[health-checkups.md](https://github.com/hlthstack/integration-guide/blob/main/docs/health-checkups.md).
+
+- Package ids are shared at onboarding.
+- `service_name` is `ahc` for health checks (also `dental`, `vision`, `flu_vaccination`).
+
+**See also:** [health-checkups.md](https://github.com/hlthstack/integration-guide/blob/main/docs/health-checkups.md)
+for full details.
 
 ### 1. List providers
 
-`GET /api/providers` with `service_name`, `package_ids` (comma-separated) and `pincode` (or
-`latitude` + `longitude`). Optional: `radius`, `page`, `per_page` (max 50), `plan_id`,
-`auto_allocate_provider`. Results are sorted by distance.
+`GET /api/providers`. Results are sorted by distance.
+
+- **Required:** `service_name`, `package_ids` (comma-separated) and `pincode` (or
+  `latitude` + `longitude`).
+- **Optional:** `radius`, `page`, `per_page` (max 50), `plan_id`, `auto_allocate_provider`.
 
 ```js
 import { api } from './client.mjs';
@@ -215,9 +255,11 @@ const provider = providers.find((p) => p.home_collection_enabled) ?? providers[0
 ### 2. Get slots
 
 `GET /api/providers/{provider_id}/{benefit_type}/slots` with `package_ids` and `pincode`.
-Pass `booking_date` (`YYYY-MM-DD`) for one day, or omit it for up to `count_days` (default 14).
-Read `booking_slots[].slots[]` (the top-level `slots` is deprecated) and book with a slot's
-`utc_slot_time`.
+
+- Pass `booking_date` (`YYYY-MM-DD`) for one day, or omit it for up to `count_days`
+  (default 14).
+- Read `booking_slots[].slots[]` (the top-level `slots` is deprecated) and book with a slot's
+  `utc_slot_time`.
 
 ```js
 const slots = await api('GET', `/api/providers/${provider.provider_id}/ahc/slots`, {
@@ -265,9 +307,9 @@ if (booking.status === 'payment_pending') console.log('Send this link to the mem
 const appointmentId = booking.customers[0].appointment_id;
 ```
 
-`status: "confirmed"` means the wallet paid; the appointment itself starts at `new` until the
-provider confirms it (you get a webhook). Optional fields: `plan_id`, `customer_plan_id` /
-`subscription_id`, `api_partner_order_id`.
+- `status: "confirmed"` means the wallet paid; the appointment itself starts at `new` until the
+  provider confirms it (you get a webhook).
+- Optional fields: `plan_id`, `customer_plan_id` / `subscription_id`, `api_partner_order_id`.
 
 ### 4. Get the booking
 
@@ -285,8 +327,11 @@ console.log('Status:', appointment.status);
 ### 5. Reschedule
 
 `PATCH /api/appointments/{appointment_id}/reschedule` (or `/api/bookings/{booking_id}/reschedule`
-for every appointment in the booking). Body: `appointment_date_time`, plus `provider_id` to move
-to another provider and, for home collection, `address` together with `provider_id`.
+for every appointment in the booking). Body:
+
+- `appointment_date_time`;
+- plus `provider_id` to move to another provider;
+- and, for home collection, `address` together with `provider_id`.
 
 ```js
 await api('PATCH', `/api/appointments/${appointmentId}/reschedule`, {
@@ -294,15 +339,18 @@ await api('PATCH', `/api/appointments/${appointmentId}/reschedule`, {
 });
 ```
 
-Allowed until 30 minutes before the slot (home collection: or until a phlebotomist is
-assigned, whichever is first). Booking-level calls can partly succeed: the 200 body then
-carries comma-separated `success` and `failed` appointment ids.
+> [!NOTE]
+> Allowed until 30 minutes before the slot (home collection: or until a phlebotomist is
+> assigned, whichever is first). Booking-level calls can partly succeed: the 200 body then
+> carries comma-separated `success` and `failed` appointment ids.
 
 ### 6. Cancel
 
 `PATCH /api/appointments/{appointment_id}/cancel` (or `/api/bookings/{booking_id}/cancel`).
-Same cut-offs as reschedule. Optional body: `reason` (up to 255 characters), recorded as the cancellation reason; without
-it hlthstack records `Cancelled by your booking partner`.
+
+- Same cut-offs as reschedule.
+- Optional body: `reason` (up to 255 characters), recorded as the cancellation reason; without
+  it hlthstack records `Cancelled by your booking partner`.
 
 ```js
 await api('PATCH', `/api/appointments/${appointmentId}/cancel`, {
@@ -326,18 +374,25 @@ if (appointment.status === 'confirmed') {
 ```
 
 After the visit, `GET /api/appointments/{appointment_id}/reports` and `.../lab_results` return
-the reports and digitized values. Report links are signed
-URLs that expire 5 minutes after they're issued: download the files right away, and fetch fresh
-links when you need them again.
+the reports and digitized values.
+
+> [!WARNING]
+> Report links are signed URLs that expire 5 minutes after they're issued: download the files
+> right away, and fetch fresh links when you need them again.
 
 ## Consultations and ePharmacy
 
 ### In-clinic consultation
 
-List doctors with `GET /api/consultations/inclinic_consultation/providers` (`package_ids`,
-`pincode`), get slots with `GET /api/providers/{provider_id}/inclinic_consultation/slots`, then
-book. `address` (including `pincode`) is required and `appointment_date_time` must be in the
-future. Script: [`examples/api/book-consultation.mjs`](../examples/api/book-consultation.mjs).
+Script: [`examples/api/book-consultation.mjs`](../examples/api/book-consultation.mjs).
+
+1. List doctors with `GET /api/consultations/inclinic_consultation/providers` (`package_ids`,
+   `pincode`).
+2. Get slots with `GET /api/providers/{provider_id}/inclinic_consultation/slots`.
+3. Book. `address` (including `pincode`) is required and `appointment_date_time` must be in the
+   future.
+
+Booking the consultation and reading it back:
 
 ```js
 const consultation = await api('POST', '/api/consultations/inclinic_consultation', {
@@ -358,14 +413,18 @@ const appointmentId = consultation.customers[0].appointment_id;
 const details = await api('GET', `/api/consultations/inclinic_consultation/${appointmentId}`);
 ```
 
-Online specialist consultations (scheduled and priority), reschedule, cancel and
-prescriptions: [consultations.md](https://github.com/hlthstack/integration-guide/blob/main/docs/consultations.md).
+**See also:** [consultations.md](https://github.com/hlthstack/integration-guide/blob/main/docs/consultations.md)
+for online specialist consultations (scheduled and priority), reschedule, cancel and
+prescriptions.
 
 ### ePharmacy: cart to order
 
-Search medicines, fill the member's cart, read the fulfillment options, then order with the
-chosen option's `vendor_id` and `location_token`. Script:
-[`examples/api/pharmacy-order.mjs`](../examples/api/pharmacy-order.mjs).
+Script: [`examples/api/pharmacy-order.mjs`](../examples/api/pharmacy-order.mjs).
+
+1. Search medicines.
+2. Fill the member's cart.
+3. Read the fulfillment options.
+4. Order with the chosen option's `vendor_id` and `location_token`.
 
 ```js
 const member = { api_customer_id: 'CUST1001' };
@@ -399,19 +458,29 @@ const order = await api('POST', '/api/epharmacy/orders', {
 // order.status: confirmed | payment_pending (payment_link) | partner_payment_pending (amount_to_collect)
 ```
 
-Notes: on GET endpoints the member goes in the query as `customer_details[api_customer_id]`.
-`POST /api/epharmacy/orders/payment_details` prices the cart first (its field is
-`selected_delivery_option`, not `delivery_option`). Prescriptions, store pickup,
-partner-collected payments and cancellation:
-[epharmacy.md](https://github.com/hlthstack/integration-guide/blob/main/docs/epharmacy.md).
+Notes:
+
+- On GET endpoints the member goes in the query as `customer_details[api_customer_id]`.
+- `POST /api/epharmacy/orders/payment_details` prices the cart first (its field is
+  `selected_delivery_option`, not `delivery_option`).
+
+**See also:** [epharmacy.md](https://github.com/hlthstack/integration-guide/blob/main/docs/epharmacy.md)
+for prescriptions, store pickup, partner-collected payments and cancellation.
 
 ## File uploads
 
-Send `multipart/form-data` with the built-in `FormData` and `Blob`, and let `fetch` set the
-`Content-Type` boundary (don't set it yourself). Prescription digitization
-(`POST /api/prescriptions/digitize`) takes exactly one customer as bracketed fields plus
-`files[]` (JPEG, PNG or PDF, each up to 10 MB), and an optional `plan_id`. An
-`Idempotency-Key` header makes retries safe. Script:
+Send `multipart/form-data` with the built-in `FormData` and `Blob`.
+
+> [!IMPORTANT]
+> Let `fetch` set the `Content-Type` boundary (don't set it yourself).
+
+Prescription digitization (`POST /api/prescriptions/digitize`) takes:
+
+- exactly one customer as bracketed fields;
+- `files[]` (JPEG, PNG or PDF, each up to 10 MB);
+- an optional `plan_id`.
+
+An `Idempotency-Key` header makes retries safe. Script:
 [`examples/api/upload-prescription.mjs`](../examples/api/upload-prescription.mjs).
 
 ```js
@@ -434,17 +503,20 @@ const accepted = await api('POST', '/api/prescriptions/digitize', {
 // or wait for the digitization_results webhook.
 ```
 
-Other multipart endpoints: `PATCH /api/epharmacy/cart` with `customer_details[api_customer_id]`
-and `prescription_files[]` (each under 7 MB), and
-`POST /api/consultations/{appointment_id}/upload_documents` with one `files[][name]` (a
-title) and `files[][value]` (the file) pair per document.
+Other multipart endpoints:
+
+| Endpoint | Fields |
+|---|---|
+| `PATCH /api/epharmacy/cart` | `customer_details[api_customer_id]` and `prescription_files[]` (each under 7 MB) |
+| `POST /api/consultations/{appointment_id}/upload_documents` | One `files[][name]` (a title) and `files[][value]` (the file) pair per document |
 
 ## Pre-registration
 
-Bulk member registration has **its own credentials** (an account email and password) and its
-own token, and the token goes in the `X-EKINCARE-KEY` header **without** a `Bearer` prefix.
-The booking API token does not work here and vice versa, and the entity headers are not used
-(each row names its `company_id`).
+> [!IMPORTANT]
+> Bulk member registration has **its own credentials** (an account email and password) and its
+> own token, and the token goes in the `X-EKINCARE-KEY` header **without** a `Bearer` prefix.
+> The booking API token does not work here and vice versa, and the entity headers are not used
+> (each row names its `company_id`).
 
 1. `GET /api/pre_registration/access-token` with HTTP Basic (the account email as username)
    returns `{ "access_token": "...", "expires_at": "2026-01-15 07:16:21 UTC" }`. Note the
@@ -452,6 +524,8 @@ The booking API token does not work here and vice versa, and the entity headers 
 2. Send `X-EKINCARE-KEY: <access_token>` on the `/v1/corporate/pre_registrations` calls.
 3. A missing, invalid or expired token returns `401` with an **empty body** (also once your
    contract has ended); `403` with an empty body means the account's role may not use the API.
+
+The pre-registration token cache and request helper, built from the same pieces as `api()`:
 
 ```js
 export const getPreRegistrationToken = tokenCache(
@@ -469,6 +543,8 @@ export function preRegistrationApi(method, path, options = {}) {
 
 Writes are asynchronous: each returns a `request_id`; poll the status until `completed`.
 Script: [`examples/api/pre-registration.mjs`](../examples/api/pre-registration.mjs).
+
+Creating an employee and a dependant, then polling:
 
 ```js
 const { request_id } = await preRegistrationApi('POST', '/v1/corporate/pre_registrations', {
@@ -498,12 +574,16 @@ while (result.status !== 'completed') {
 }
 ```
 
-**Every required key must be present in every `create` row, even when empty** (`""` or
-`null`): a row missing one is dropped silently and never appears in the status. At most 250
-rows (employees plus dependants) per call. Updates go to `POST .../pre_registrations/update`
-(identifier plus changed fields only) and deactivations to `POST .../pre_registrations/deactivate`
-(employee emails, dependant mobile numbers). See
-[pre-registration.md](https://github.com/hlthstack/integration-guide/blob/main/docs/pre-registration.md).
+> [!WARNING]
+> **Every required key must be present in every `create` row, even when empty** (`""` or
+> `null`): a row missing one is dropped silently and never appears in the status.
+
+- At most 250 rows (employees plus dependants) per call.
+- Updates go to `POST .../pre_registrations/update` (identifier plus changed fields only).
+- Deactivations go to `POST .../pre_registrations/deactivate` (employee emails, dependant
+  mobile numbers).
+
+**See also:** [pre-registration.md](https://github.com/hlthstack/integration-guide/blob/main/docs/pre-registration.md).
 
 ## Errors
 
@@ -563,18 +643,29 @@ try {
 }
 ```
 
-Some ePharmacy responses are HTTP 200 with a nested `success: false` (for example
-`delivery_options` in fulfillment options): check those flags too.
+> [!WARNING]
+> Some ePharmacy responses are HTTP 200 with a nested `success: false` (for example
+> `delivery_options` in fulfillment options): check those flags too.
 
-**Retrying.** `api()` retries only once after a `401`. Retry `5xx`, `409` and network errors
-(including timeouts) with backoff yourself. `400`, `403` and `404` mean the request needs
-fixing, as do most `422`s, except those that ask you to wait (`Previous request is in progress,
-please try ... after few minutes`) and the pre-registration `422 something went wrong`.
-**Don't blindly retry booking creation** (`POST /api/appointments` or consultation
-creation): a timeout doesn't mean the booking failed, so check with
-`GET /api/appointments?booking_id=...`, the member's appointments, or your webhooks first.
+### Retrying
+
+`api()` retries only once after a `401`. For everything else:
+
+| Response | What to do |
+|---|---|
+| `5xx`, `409`, network errors (including timeouts) | Retry with backoff yourself |
+| `400`, `403`, `404`, most `422`s | The request needs fixing |
+| `422`s that ask you to wait (`Previous request is in progress, please try ... after few minutes`), and the pre-registration `422 something went wrong` | Exceptions to the row above: these don't mean the request needs fixing |
+
+> [!CAUTION]
+> **Don't blindly retry booking creation** (`POST /api/appointments` or consultation
+> creation): a timeout doesn't mean the booking failed, so check with
+> `GET /api/appointments?booking_id=...`, the member's appointments, or your webhooks first.
+
 Prescription digitization (with an `Idempotency-Key`) and partner-payment confirmation are
-safe to retry. See [errors.md](https://github.com/hlthstack/integration-guide/blob/main/docs/errors.md).
+safe to retry.
+
+**See also:** [errors.md](https://github.com/hlthstack/integration-guide/blob/main/docs/errors.md).
 
 ## Validating inputs yourself
 
@@ -597,11 +688,17 @@ call saves a round trip and gives your users clearer messages:
 | ePharmacy cart | At least one change; `address` or `address_id`, not both; unique product ids; `selected_chemist_id` for store pickup |
 
 The complete list is in the [OpenAPI spec](https://github.com/hlthstack/integration-guide/blob/main/openapi/openapi.yaml):
-each request schema's `required`, `enum`, `pattern`, length and range keywords, and the
-cross-field and date rules under each operation's `x-hlthstack-rules` (kinds listed in
-`x-hlthstack-rule-kinds`). Checks that need stored data (plan benefits, package ids, slot
-availability) are only made by the server. The [SDK](sdk-integration.md#validation) runs all
-of these checks automatically before every call.
+
+- each request schema's `required`, `enum`, `pattern`, length and range keywords;
+- the cross-field and date rules under each operation's `x-hlthstack-rules` (kinds listed in
+  `x-hlthstack-rule-kinds`).
+
+Checks that need stored data (plan benefits, package ids, slot availability) are only made by
+the server.
+
+> [!TIP]
+> The [SDK](sdk-integration.md#validation) runs all of these checks automatically before every
+> call.
 
 ## Webhooks
 
@@ -615,7 +712,7 @@ verify all three:
    pharmacy; `request_id` for prescription digitization; otherwise `appointment_id` and
    `booking_id`.
 
-No JWT library is needed; `node:crypto` is enough
+No JWT library is needed; `node:crypto` is enough. The verifier
 ([`examples/api/webhook-verify.mjs`](../examples/api/webhook-verify.mjs)):
 
 ```js
@@ -688,11 +785,15 @@ app.post('/hlthstack/webhooks', (req, res) => {
 });
 ```
 
-Delivery: retried up to 5 times on timeouts, connection errors and `408`/`502`/`503`/`504`
-only. Order isn't guaranteed and each body is a full snapshot, so apply the latest one (use
-the `timestamp` claim) and reconcile with the GET endpoints. Appointment and pharmacy events
-share the status-updates URL. Payloads and claims per event:
-[webhooks.md](https://github.com/hlthstack/integration-guide/blob/main/docs/webhooks.md).
+**Delivery:**
+
+- Retried up to 5 times on timeouts, connection errors and `408`/`502`/`503`/`504` only.
+- Order isn't guaranteed and each body is a full snapshot, so apply the latest one (use the
+  `timestamp` claim) and reconcile with the GET endpoints.
+- Appointment and pharmacy events share the status-updates URL.
+
+**See also:** [webhooks.md](https://github.com/hlthstack/integration-guide/blob/main/docs/webhooks.md)
+for payloads and claims per event.
 
 ## Moving to the SDK
 

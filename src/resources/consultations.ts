@@ -169,7 +169,7 @@ export class Consultations {
 
   /**
    * `GET /api/consultations/{appointment_id}/summary_and_prescription`
-   * (getConsultationSummaryAndPrescription). File links expire after a few minutes.
+   * (getConsultationSummaryAndPrescription). File links expire after 5 minutes.
    */
   getSummaryAndPrescription(
     appointmentId: string,

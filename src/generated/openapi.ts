@@ -713,7 +713,7 @@ export interface paths {
          * Get the consultation summary and prescriptions
          * @description `summary.file_name` and `summary.file_url` are `null` when the doctor wrote a
          *     prescription but no summary; `doctor_prescriptions` is empty when there is none. File
-         *     links are pre-signed and expire after a few minutes: download them or fetch again,
+         *     links are pre-signed and expire after 5 minutes: download them or fetch again,
          *     don't store them.
          */
         get: operations["getConsultationSummaryAndPrescription"];
